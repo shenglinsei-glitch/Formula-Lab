@@ -1,326 +1,357 @@
-import React from 'react';
-import { X, Check } from 'lucide-react';
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { ChevronDown, MoreVertical, Plus, ChevronLeft, Maximize2, Minimize2, X } from "lucide-react";
 import { dataStore } from '../store/dataStore';
+import { UNCATEGORIZED_SCENARIO_ID } from '../store/dataStore';
+import BottomNav from './BottomNav';
 
-type LearningMode = 'left' | 'right' | 'whole';
-type CoverRatio = 30 | 50 | 70 | 100;
-type LearningContentType = 'formula' | 'symbols' | 'relations' | 'steps';
-type StepCoverMode = 'random' | 'title' | 'formulas';
-
-interface LearningSettingsProps {
-  selectedScenarioIds: string[];
-  onToggleScenario: (id: string) => void;
-  contentTypes: LearningContentType[];
-  onToggleContentType: (type: LearningContentType) => void;
-  mode: LearningMode;
-  stepCoverMode: StepCoverMode;
-  onStepCoverModeChange: (mode: StepCoverMode) => void;
-  ratio: CoverRatio;
-  isRandom: boolean;
-  onModeChange: (mode: LearningMode) => void;
-  onRatioChange: (ratio: CoverRatio) => void;
-  onToggleRandom: () => void;
-  onApply: () => void;
-  onClose: () => void;
+interface StepListPageProps {
+  scenarioId: string;
+  targetStepId: string | null;
+  onBack: () => void;
+  onFormulaClick: (formulaId: string) => void;
+  onLearningClick: () => void;
 }
 
-export default function LearningSettings({
-  selectedScenarioIds,
-  onToggleScenario,
-  contentTypes,
-  onToggleContentType,
-  stepCoverMode,
-  onStepCoverModeChange,
-  mode,
-  ratio,
-  isRandom,
-  onModeChange,
-  onRatioChange,
-  onToggleRandom,
-  onApply,
-  onClose,
-}: LearningSettingsProps) {
-  // 收集所有场景（包括子场景）
-  const allScenarios = dataStore.getScenarios();
-  
-  // 检查是否可以开始学习
-  const canStart = selectedScenarioIds.length > 0 && contentTypes.length > 0;
+export default function StepListPage({
+  scenarioId,
+  targetStepId,
+  onBack,
+  onFormulaClick,
+  onLearningClick,
+}: StepListPageProps) {
+  const [scenario, setScenario] = useState(() => dataStore.getScenario(scenarioId));
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
+  const [showAddStepDialog, setShowAddStepDialog] = useState(false);
+  const [newStepName, setNewStepName] = useState('');
+  const [showFormulaSelector, setShowFormulaSelector] = useState<string | null>(null);
 
-  // 計算ステップ用（純日本語・短いラベル）
-  const STEP_COVER_LABEL = '隠し位置' as const;
+  // Step action menu (via '...' button)
+  const [stepMenu, setStepMenu] = useState<null | { stepId: string; anchorRect: DOMRect }>(null);
+
+  const openStepMenu = (stepId: string, anchorRect: DOMRect) => {
+    setStepMenu({ stepId, anchorRect });
+  };
+
+  const closeStepMenu = () => {
+    setStepMenu(null);
+  };
+
+  useEffect(() => {
+    if (!stepMenu) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeStepMenu();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [stepMenu]);
+
+  // 订阅数据更新
+
+  useEffect(() => {
+    const unsubscribe = dataStore.subscribe(() => {
+      setScenario(dataStore.getScenario(scenarioId));
+    });
+    return unsubscribe;
+  }, [scenarioId]);
+
+  if (!scenario) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-muted-foreground">シナリオが見つかりません</div>
+      </div>
+    );
+  }
+
+  const toggleStep = (stepId: string) => {
+    const newExpanded = new Set(expandedSteps);
+    if (newExpanded.has(stepId)) {
+      newExpanded.delete(stepId);
+    } else {
+      newExpanded.add(stepId);
+    }
+    setExpandedSteps(newExpanded);
+  };
+
+  const expandAll = () => {
+    setExpandedSteps(new Set(scenario.steps.map((s) => s.id)));
+  };
+
+  const collapseAll = () => {
+    setExpandedSteps(new Set());
+  };
+
+  useEffect(() => {
+    if (targetStepId) {
+      setExpandedSteps(new Set([targetStepId]));
+    }
+  }, [targetStepId]);
+
+  const addStep = () => {
+    if (newStepName.trim()) {
+      dataStore.addStep(scenarioId, newStepName);
+      setNewStepName('');
+      setShowAddStepDialog(false);
+    }
+  };
+
+  const deleteStep = (stepId: string) => {
+    if (confirm('このステップを削除しますか？（公式は削除されません）')) {
+      dataStore.deleteStep(scenarioId, stepId);
+    }
+  };
+
+  const addFormulaToStep = (stepId: string, formulaId: string) => {
+    dataStore.addFormulaToStep(scenarioId, stepId, formulaId);
+    setShowFormulaSelector(null);
+  };
+
+  const removeFormulaFromStep = (stepId: string, formulaId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    dataStore.removeFormulaFromStep(scenarioId, stepId, formulaId);
+  };
 
   return (
-    <>
-      {/* 背景遮罩 */}
-      <div 
-        className="fixed inset-0 bg-black/30 z-40"
-        onClick={onClose}
+    <div className="min-h-screen flex flex-col bg-background pb-16">
+      {/* Step context menu */}
+      {stepMenu &&
+        (() => {
+          const MENU_W = 220;
+          const MENU_H = 112; // approx height for 2 items
+          const PAD = 10;
+
+          const rect = stepMenu.anchorRect;
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+
+          // Default: align to the '...' button's right edge, show below
+          let left = rect.right - MENU_W;
+          let top = rect.bottom + 8;
+
+          // Clamp horizontally
+          if (left < PAD) left = PAD;
+          if (left + MENU_W > vw - PAD) left = vw - PAD - MENU_W;
+
+          // If bottom overflows, show above
+          if (top + MENU_H > vh - PAD) {
+            top = rect.top - 8 - MENU_H;
+          }
+          if (top < PAD) top = PAD;
+
+          return (
+            <div
+              className="fixed inset-0 z-50"
+              onPointerDown={() => closeStepMenu()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <div
+                className="absolute bg-white/90 dark:bg-neutral-900/90 backdrop-blur-md shadow-xl rounded-xl border border-border p-1 min-w-[200px]"
+                style={{ left, top, width: MENU_W }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors"
+                  onClick={() => {
+                    setShowFormulaSelector(stepMenu.stepId);
+                    closeStepMenu();
+                  }}
+                >
+                  ＋ 公式を追加
+                </button>
+				<button
+				  type="button"
+				  className="w-full text-left px-3 py-2 rounded-lg hover:bg-orange-500/10 transition-colors text-orange-500 hover:text-orange-600"
+                  onClick={() => {
+                    deleteStep(stepMenu.stepId);
+                    closeStepMenu();
+                  }}
+                >
+                  ステップを削除
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+      {/* Header */}
+      <header className="px-5 py-4 flex items-center justify-between border-b border-border">
+        <button onClick={onBack} className="p-2 hover:bg-primary/10 rounded-xl transition-colors">
+          <ChevronLeft className="w-5 h-5 text-foreground" />
+        </button>
+        <h1 className="flex-1 text-center text-foreground">{scenario.name}</h1>
+        
+        {/* 展開/折叠控制 - 图标化 */}
+        <div className="flex gap-1">
+          <button
+            onClick={expandAll}
+            className="p-2 text-primary hover:bg-primary/10 rounded-xl transition-colors"
+            title="全展開"
+          >
+            <Maximize2 className="w-5 h-5" />
+          </button>
+          <button
+            onClick={collapseAll}
+            className="p-2 text-primary hover:bg-primary/10 rounded-xl transition-colors"
+            title="全折畳"
+          >
+            <Minimize2 className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setShowAddStepDialog(true)}
+            className="p-2 text-primary hover:bg-primary/10 rounded-xl transition-colors"
+            title="ステップ追加"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+        </div>
+      </header>
+
+      {/* Steps List */}
+      <main className="flex-1 p-4 pb-4 overflow-y-auto space-y-2">
+        {scenario.steps.map((step, index) => {
+          const isExpanded = expandedSteps.has(step.id);
+          return (
+            <div key={step.id} className="glass-card rounded-2xl overflow-hidden">
+              {/* Step Header */}
+              <div
+                className="px-4 py-3 flex items-center justify-between select-none"
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleStep(step.id)}
+                  className="flex items-center gap-2 flex-1 text-left"
+                >
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                  />
+                  <span className="font-medium text-foreground">ステップ{index + 1}: {step.name}</span>
+                </button>
+
+                <button
+                  type="button"
+                  aria-label="ステップメニュー"
+                  onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                      openStepMenu(step.id, rect);
+                    }}
+                  className="p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-xl transition-colors"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Formula List */}
+              {isExpanded && (
+                <div className="border-t border-border">
+                  {(step.formulaIds || []).map((formulaId) => {
+                    const formula = dataStore.getFormula(formulaId);
+                    if (!formula) return null;
+                    
+                    return (
+                      <div
+                        key={formula.id}
+                        className="flex items-center gap-3 px-5 py-3 hover:bg-primary/5 transition-colors border-b border-border last:border-b-0"
+                      >
+                        <button
+                          onClick={() => onFormulaClick(formula.id)}
+                          className="flex-1 text-left"
+                        >
+                          <div className="text-sm text-foreground mb-1">{formula.name}</div>
+                          <div className="text-sm text-muted-foreground font-mono">{formula.expression}</div>
+                        </button>
+	                        {scenarioId !== UNCATEGORIZED_SCENARIO_ID && (
+	                          <button
+	                            onClick={(e) => removeFormulaFromStep(step.id, formulaId, e)}
+	                            className="p-2 text-muted-foreground hover:text-orange-500 hover:bg-orange-500/10 rounded-xl transition-colors"
+	                            title="削除"
+	                          >
+	                            <X className="w-4 h-4" />
+	                          </button>
+	                        )}
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Add Formula Button */}
+                  {scenarioId !== UNCATEGORIZED_SCENARIO_ID && showFormulaSelector === step.id && (
+                    <div className="p-4">
+                      <div className="glass-card rounded-xl max-h-60 overflow-y-auto">
+                        {Object.values(dataStore.getFormulas()).map((formula) => {
+                          const alreadyAdded = step.formulaIds.includes(formula.id);
+                          return (
+                            <button
+                              key={formula.id}
+                              onClick={() => addFormulaToStep(step.id, formula.id)}
+                              disabled={alreadyAdded}
+                              className="w-full px-4 py-3 text-left hover:bg-primary/5 border-b border-border last:border-b-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <div className="text-sm text-foreground">{formula.name}</div>
+                              <div className="text-xs text-muted-foreground font-mono">{formula.expression}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </main>
+
+      {/* Bottom Navigation */}
+      <BottomNav
+        currentPage="home"
+        onNavigateHome={onBack}
+        onNavigateLearning={onLearningClick}
       />
-      
-      {/* 设置抽屉 */}
-      <div className="fixed top-0 right-0 bottom-0 w-full max-w-md bg-background shadow-2xl z-50 overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-background border-b border-border px-5 py-4 flex items-center justify-between">
-          <h2 className="text-foreground">学習設定</h2>
-          <button
-            onClick={onClose}
-            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted/10 rounded-xl transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
-        {/* Content */}
-        <div className="p-5 space-y-6 pb-32">
-          {/* 学习范围 */}
-          <div>
-            <h3 className="text-sm text-foreground mb-3">学習範囲（場面を選択）</h3>
-            <div className="space-y-2">
-              {allScenarios.map(scenario => (
+      {/* Add Step Dialog */}
+      {showAddStepDialog && (
+        <>
+          {/* 背景遮罩 */}
+          <div 
+            className="fixed inset-0 bg-black/30 z-40"
+            onClick={() => setShowAddStepDialog(false)}
+          />
+          
+          {/* 对话框 */}
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-6">
+            <div className="glass-card rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+              <h2 className="text-foreground mb-4">新しいステップを追加</h2>
+              <input
+                type="text"
+                value={newStepName}
+                onChange={(e) => setNewStepName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addStep();
+                  if (e.key === 'Escape') setShowAddStepDialog(false);
+                }}
+                className="w-full px-4 py-3 glass-card rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground mb-4"
+                placeholder="ステップ名を入力"
+                autoFocus
+              />
+              <div className="flex gap-2">
                 <button
-                  key={scenario.id}
-                  onClick={() => onToggleScenario(scenario.id)}
-                  className={`w-full glass-card rounded-xl px-4 py-3 text-left flex items-center gap-3 transition-all ${
-                    selectedScenarioIds.includes(scenario.id)
-                      ? 'ring-2 ring-primary bg-primary/5'
-                      : 'hover:shadow-md'
-                  }`}
+                  onClick={() => setShowAddStepDialog(false)}
+                  className="flex-1 px-4 py-2.5 glass-card rounded-xl text-sm text-muted-foreground hover:bg-muted/10 transition-colors"
                 >
-                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                    selectedScenarioIds.includes(scenario.id)
-                      ? 'border-primary bg-primary'
-                      : 'border-muted-foreground'
-                  }`}>
-                    {selectedScenarioIds.includes(scenario.id) && (
-                      <Check className="w-3 h-3 text-primary-foreground" />
-                    )}
-                  </div>
-                  <span className="flex-1 text-foreground">{scenario.name}</span>
+                  キャンセル
                 </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 学习内容 */}
-          <div>
-            <h3 className="text-sm text-foreground mb-3">学習内容（複数選択可）</h3>
-            <div className="space-y-2">
-              <button
-                onClick={() => onToggleContentType('formula')}
-                className={`w-full glass-card rounded-xl px-4 py-3 text-left flex items-center gap-3 transition-all ${
-                  contentTypes.includes('formula')
-                    ? 'ring-2 ring-primary bg-primary/5'
-                    : 'hover:shadow-md'
-                }`}
-              >
-                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                  contentTypes.includes('formula')
-                    ? 'border-primary bg-primary'
-                    : 'border-muted-foreground'
-                }`}>
-                  {contentTypes.includes('formula') && (
-                    <Check className="w-3 h-3 text-primary-foreground" />
-                  )}
-                </div>
-                <span className="flex-1 text-foreground">公式本体（構造）</span>
-              </button>
-              
-              <button
-                onClick={() => onToggleContentType('symbols')}
-                className={`w-full glass-card rounded-xl px-4 py-3 text-left flex items-center gap-3 transition-all ${
-                  contentTypes.includes('symbols')
-                    ? 'ring-2 ring-primary bg-primary/5'
-                    : 'hover:shadow-md'
-                }`}
-              >
-                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                  contentTypes.includes('symbols')
-                    ? 'border-primary bg-primary'
-                    : 'border-muted-foreground'
-                }`}>
-                  {contentTypes.includes('symbols') && (
-                    <Check className="w-3 h-3 text-primary-foreground" />
-                  )}
-                </div>
-                <span className="flex-1 text-foreground">記号の意味</span>
-              </button>
-              
-              <button
-                onClick={() => onToggleContentType('relations')}
-                className={`w-full glass-card rounded-xl px-4 py-3 text-left flex items-center gap-3 transition-all ${
-                  contentTypes.includes('relations')
-                    ? 'ring-2 ring-primary bg-primary/5'
-                    : 'hover:shadow-md'
-                }`}
-              >
-                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                  contentTypes.includes('relations')
-                    ? 'border-primary bg-primary'
-                    : 'border-muted-foreground'
-                }`}>
-                  {contentTypes.includes('relations') && (
-                    <Check className="w-3 h-3 text-primary-foreground" />
-                  )}
-                </div>
-                <span className="flex-1 text-foreground">関連公式</span>
-              </button>
-
-              <button
-                onClick={() => onToggleContentType('steps')}
-                className={`w-full glass-card rounded-xl px-4 py-3 text-left flex items-center gap-3 transition-all ${
-                  contentTypes.includes('steps')
-                    ? 'ring-2 ring-primary bg-primary/5'
-                    : 'hover:shadow-md'
-                }`}
-              >
-                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                  contentTypes.includes('steps')
-                    ? 'border-primary bg-primary'
-                    : 'border-muted-foreground'
-                }`}>
-                  {contentTypes.includes('steps') && (
-                    <Check className="w-3 h-3 text-primary-foreground" />
-                  )}
-                </div>
-                <span className="flex-1 text-foreground">計算ステップ</span>
-              </button>
-            </div>
-          </div>
-
-          {/* 遮挡设置 */}
-          {contentTypes.length > 0 && (
-            <>
-              {/* 遮挡位置（公式本体 / 記号の意味 用） */}
-              {(contentTypes.includes('formula') || contentTypes.includes('symbols')) && (
-                <div>
-                  <h3 className="text-sm text-foreground mb-3">遮挡位置</h3>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onModeChange('left')}
-                      className={`flex-1 py-2.5 rounded-xl text-sm transition-all ${
-                        mode === 'left'
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'glass-card text-foreground hover:shadow-md'
-                      }`}
-                    >
-                      左側
-                    </button>
-                    <button
-                      onClick={() => onModeChange('right')}
-                      className={`flex-1 py-2.5 rounded-xl text-sm transition-all ${
-                        mode === 'right'
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'glass-card text-foreground hover:shadow-md'
-                      }`}
-                    >
-                      右側
-                    </button>
-                    <button
-                      onClick={() => onModeChange('whole')}
-                      className={`flex-1 py-2.5 rounded-xl text-sm transition-all ${
-                        mode === 'whole'
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'glass-card text-foreground hover:shadow-md'
-                      }`}
-                    >
-                      全体
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* 計算ステップ：遮挡対象 */}
-              {contentTypes.includes('steps') && (
-                <div>
-                  <h3 className="text-sm text-foreground mb-3">{STEP_COVER_LABEL}</h3>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onStepCoverModeChange('title')}
-                      className={`flex-1 py-2.5 rounded-xl text-sm transition-all ${
-                        stepCoverMode === 'title'
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'glass-card text-foreground hover:shadow-md'
-                      }`}
-                    >
-                      ステップ名のみ
-                    </button>
-                    <button
-                      onClick={() => onStepCoverModeChange('formulas')}
-                      className={`flex-1 py-2.5 rounded-xl text-sm transition-all ${
-                        stepCoverMode === 'formulas'
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'glass-card text-foreground hover:shadow-md'
-                      }`}
-                    >
-                      公式のみ
-                    </button>
-                    <button
-                      onClick={() => onStepCoverModeChange('random')}
-                      className={`flex-1 py-2.5 rounded-xl text-sm transition-all ${
-                        stepCoverMode === 'random'
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'glass-card text-foreground hover:shadow-md'
-                      }`}
-                    >
-                      ランダム
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* 遮挡比例（全题型共通） */}
-              <div>
-                <h3 className="text-sm text-foreground mb-3">隠す割合</h3>
-                <div className="grid grid-cols-4 gap-2">
-                  {[30, 50, 70, 100].map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => onRatioChange(r as CoverRatio)}
-                      className={`py-2.5 rounded-xl text-sm transition-all ${
-                        ratio === r
-                          ? 'bg-primary text-primary-foreground shadow-md'
-                          : 'glass-card text-foreground hover:shadow-md'
-                      }`}
-                    >
-                      {r}%
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* ランダム配置（全题型共通） */}
-              <div>
                 <button
-                  onClick={onToggleRandom}
-                  className={`w-full glass-card rounded-xl px-4 py-3 text-left flex items-center gap-3 transition-all ${
-                    isRandom ? 'ring-2 ring-primary bg-primary/5' : 'hover:shadow-md'
-                  }`}
+                  onClick={addStep}
+                  disabled={!newStepName.trim()}
+                  className="flex-1 px-4 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  <div
-                    className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                      isRandom ? 'border-primary bg-primary' : 'border-muted-foreground'
-                    }`}
-                  >
-                    {isRandom && <Check className="w-3 h-3 text-primary-foreground" />}
-                  </div>
-                  <span className="flex-1 text-foreground">ランダム配置</span>
+                  追加
                 </button>
               </div>
-            </>
-          )}
-        </div>
-
-        {/* 底部按钮 */}
-        <div className="fixed bottom-0 left-0 right-0 max-w-md ml-auto glass-nav px-5 py-4">
-          <button
-            onClick={onApply}
-            disabled={!canStart}
-            className="w-full py-4 bg-primary text-primary-foreground rounded-2xl shadow-lg hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            {canStart ? '適用 / 開始' : '範囲と内容を選択してください'}
-          </button>
-        </div>
-      </div>
-    </>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
