@@ -244,15 +244,21 @@ export default function HomePage({
   };
 
   // 渲染场景树（支持嵌套）
-  const renderScenarioTree = (parentId?: string, level: number = 0) => {
-    const scenarios = parentId 
-      ? dataStore.getChildScenarios(parentId)
-      : dataStore.getRootScenarios();
+const renderScenarioTree = (parentId?: string, level: number = 0) => {
+  const scenarios = parentId
+    ? (dataStore.getChildScenarios(parentId) ?? [])
+    : (dataStore.getRootScenarios() ?? []);
 
-    return scenarios.map((scenario) => {
-      const isExpanded = expandedScenarios.has(scenario.id);
-      const hasChildren = dataStore.getChildScenarios(scenario.id).length > 0;
-      const isUncategorized = scenario.id === UNCATEGORIZED_SCENARIO_ID;
+  return scenarios.map((scenario) => {
+    const isExpanded = expandedScenarios.has(scenario.id);
+
+    const children = dataStore.getChildScenarios(scenario.id) ?? [];
+    const hasChildren = children.length > 0;
+
+    const isUncategorized = scenario.id === UNCATEGORIZED_SCENARIO_ID;
+
+    // ↓↓↓ 从这里开始，你原来的 JSX return 保持不变 ↓↓↓
+
 
       return (
         <div key={scenario.id}>
