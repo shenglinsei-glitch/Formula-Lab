@@ -885,7 +885,11 @@ export default function FormulaStructureEditPage({
       }
 
       // 字母和数字直接插入
+      // ※IME（中文/日文）変換中はローマ字キーが飛んでくるため、ここでは挿入しない（確定は beforeinput: insertFromComposition で反映）
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.isComposing || isComposingRef.current) {
+          return;
+        }
         e.preventDefault();
         insertCharacter(e.key);
       }
@@ -946,7 +950,6 @@ export default function FormulaStructureEditPage({
       e.preventDefault?.();
       deleteAtCursor();
       clearHiddenInput();
-      focusHiddenInput();
       return;
     }
 
@@ -955,7 +958,6 @@ export default function FormulaStructureEditPage({
       e.preventDefault?.();
       insertCharacter(' ');
       clearHiddenInput();
-      focusHiddenInput();
       return;
     }
 
@@ -965,7 +967,6 @@ export default function FormulaStructureEditPage({
         e.preventDefault?.();
         for (const ch of Array.from(data)) insertCharacter(ch);
         clearHiddenInput();
-        focusHiddenInput();
       }
       return;
     }
@@ -976,7 +977,6 @@ export default function FormulaStructureEditPage({
         e.preventDefault?.();
         for (const ch of Array.from(data)) insertCharacter(ch);
         clearHiddenInput();
-        focusHiddenInput();
       }
       return;
     }
@@ -987,23 +987,19 @@ export default function FormulaStructureEditPage({
 
   const handleHiddenInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
     // 安全弁：想定外で textarea に残った文字は、確定入力以外はツリーへ入れない。
+    // beforeInput で既に処理済みなので、ここでは基本的にクリアのみ
     const el = e.currentTarget;
     const value = el.value;
-    if (!value) return;
-
-    const t = lastInputTypeRef.current;
-
-    // composition 中のローマ字等が value に残ることがあるため、基本はクリアだけ
-    // ただし、何らかの理由で beforeinput が効かない環境では value を拾う
-    if (t === 'insertText' || t === 'insertFromComposition') {
-      for (const ch of Array.from(value)) {
-        if (ch === '\n') insertCharacter(' ');
-        else insertCharacter(ch);
-      }
+    
+    // IME入力中は何もしない
+    if (isComposingRef.current) {
+      return;
     }
-
-    clearHiddenInput();
-    focusHiddenInput();
+    
+    // beforeInputが処理済みなので、ここでは念のためクリアするだけ
+    if (value) {
+      clearHiddenInput();
+    }
   };
 
   const handleNext = () => {
@@ -1068,6 +1064,8 @@ export default function FormulaStructureEditPage({
           pointerEvents: 'none',
         }}
         onBeforeInput={handleHiddenBeforeInput as any}
+        onCompositionStart={() => { isComposingRef.current = true; }}
+        onCompositionEnd={() => { isComposingRef.current = false; }}
         onInput={handleHiddenInput}
       />
 

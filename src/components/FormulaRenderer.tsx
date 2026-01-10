@@ -78,14 +78,18 @@ export default function FormulaRenderer({
 
       case 'fraction':
         return (
-          // 重要：inline-flex のままだと「ベースライン」が不自然になり、後続要素（√など）が上に寄って見えることがある。
-          // inline-block にしてベースラインを「分母側（下端）」に寄せる。
           <span className="inline-block mx-1 align-middle">
-            <span className="flex flex-col items-center">
-              <span className="border-b border-foreground/70 px-1 leading-none">
+            <span className="flex flex-col items-center" style={{ lineHeight: 1 }}>
+              <span
+                className="border-b border-foreground/70 px-1"
+                style={{ paddingBottom: '0.18em' }}  // ここを広げて多重分数の重なりを防ぐ
+              >
                 {renderContainer(node.numerator, [...path, 'numerator'])}
               </span>
-              <span className="px-1 leading-none">
+              <span
+                className="px-1"
+                style={{ paddingTop: '0.18em' }} // ここを広げて多重分数の重なりを防ぐ
+              >
                 {renderContainer(node.denominator, [...path, 'denominator'])}
               </span>
             </span>
