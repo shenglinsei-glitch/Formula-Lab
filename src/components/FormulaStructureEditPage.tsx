@@ -86,6 +86,11 @@ export default function FormulaStructureEditPage({
   const hiddenInputRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
 
+  // iOS キーボード回避（VisualViewport でキーボードの被り量を取得）
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(0);
+  const bottomPanelRef = useRef<HTMLDivElement>(null);
+
   const focusHiddenInput = () => {
     // 必须在用户手势（click/touch）回调内调用才会弹键盘
     // iOS 上偶尔需要先 blur 再 focus 才稳定
@@ -107,6 +112,44 @@ export default function FormulaStructureEditPage({
     if (!el) return;
     el.value = '';
   };
+
+
+  // キーボードの高さ（被り）を監視
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const update = () => {
+      // innerHeight と visualViewport.height の差分が概ねキーボード高さ
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardInset(inset);
+    };
+
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    window.addEventListener('orientationchange', update);
+
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+      window.removeEventListener('orientationchange', update);
+    };
+  }, []);
+
+  // 下部パネル高さを取得（エディタの padding に反映）
+  useEffect(() => {
+    const el = bottomPanelRef.current;
+    if (!el) return;
+
+    const update = () => setBottomPanelHeight(el.getBoundingClientRect().height);
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+
+    return () => ro.disconnect();
+  }, []);
 
   // 保存历史记录
   const saveHistory = (newRoot: FormulaRoot, newCursor: Cursor) => {
@@ -890,10 +933,10 @@ export default function FormulaStructureEditPage({
         // sr-only 在某些实现里会 display:none（会导致无法 focus），因此用 inline style 强制存在
         style={{
           position: 'fixed',
-          top: 0,
+          bottom: 0,
           left: 0,
-          width: 1,
-          height: 1,
+          width: 8,
+          height: 8,
           opacity: 0,
           // 让它不挡点击，但仍可 focus
           pointerEvents: 'none',
@@ -945,7 +988,7 @@ export default function FormulaStructureEditPage({
         {/* 编辑区 - 无限画布 */}
         <div
           ref={editorRef}
-          className="flex-1 overflow-auto p-6"
+          className="flex-1 overflow-auto p-6" style={{ paddingBottom: bottomPanelHeight + keyboardInset + 24 }}
           onClick={() => {
             setCursor({ path: [], index: root.children.length });
             setHighlightedForDeletion(null);
@@ -969,7 +1012,7 @@ export default function FormulaStructureEditPage({
         </div>
 
         {/* 公式键盘 - 横向滚动，无标题 */}
-        <div className="border-t border-border bg-card/50 backdrop-blur-sm">
+        <div ref={bottomPanelRef} className="border-t border-border bg-card/50 backdrop-blur-sm fixed left-0 right-0 z-50" style={{ bottom: keyboardInset, paddingBottom: "env(safe-area-inset-bottom)" }}>
           {/* 第一行：构造符号 + 函数 */}
           <div className="px-3 py-3 overflow-x-auto">
             <div className="flex gap-2 pb-1">
