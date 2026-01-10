@@ -1,15 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!DOCTYPE html>
-  <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>力学公式 App 结构设计</title>
-    </head>
+    <title>力学公式 App 结构设计</title>
 
-    <body>
-      <div id="root"></div>
-      <script type="module" src="/src/main.tsx"></script>
-    </body>
-  </html>
-  
+    <!-- 浏览器标签图标（用 192 先顶上） -->
+    <link rel="icon" type="image/png" href="/pwa-192x192.png" />
+
+    <!-- iOS “添加到主屏幕”图标（没有 apple-touch-icon 的情况下先用 192 顶上） -->
+    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- 可选：地址栏主题色 -->
+    <meta name="theme-color" content="#53BEE8" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

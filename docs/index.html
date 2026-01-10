@@ -1,16 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!DOCTYPE html>
-  <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>力学公式 App 结构设计</title>
-      <script type="module" crossorigin src="/Formula-Lab/assets/index-GHrTnDK2.js"></script>
-      <link rel="stylesheet" crossorigin href="/Formula-Lab/assets/index-BBvKg9Cw.css">
-    </head>
+    <title>力学公式 App 结构设计</title>
 
-    <body>
-      <div id="root"></div>
-    </body>
-  </html>
-  
+    <!-- 浏览器标签图标（用 192 先顶上） -->
+    <link rel="icon" type="image/png" href="/Formula-Lab/pwa-192x192.png" />
+
+    <!-- iOS “添加到主屏幕”图标（没有 apple-touch-icon 的情况下先用 192 顶上） -->
+    <link rel="apple-touch-icon" href="/Formula-Lab/pwa-192x192.png" />
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/Formula-Lab/manifest.webmanifest" />
+
+    <!-- 可选：地址栏主题色 -->
+    <meta name="theme-color" content="#53BEE8" />
+    <script type="module" crossorigin src="/Formula-Lab/assets/index-GHrTnDK2.js"></script>
+    <link rel="stylesheet" crossorigin href="/Formula-Lab/assets/index-BBvKg9Cw.css">
+  </head>
+
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
