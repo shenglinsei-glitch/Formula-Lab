@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ChevronLeft, ChevronDown, ChevronRight, Edit2 } from 'lucide-react';
 import { dataStore } from '../store/dataStore';
 import BottomNav from './BottomNav';
+import FormulaRenderer from './FormulaRenderer';
 
 interface FormulaDetailPageProps {
   formulaId: string;
@@ -67,8 +68,13 @@ export default function FormulaDetailPage({
       <main className="flex-1 p-4 pb-4 space-y-3 overflow-y-auto">
         {/* Formula Display */}
         <div className="glass-card rounded-2xl p-5">
-          <div className="text-2xl text-foreground font-mono text-center">
-            {formula.expression}
+          <div className="text-2xl text-foreground text-center">
+            <FormulaRenderer
+              root={(formula.structureTree || formula.structureData) as any}
+              fallback={formula.expression}
+              className=""
+              maskBlocks={[]}
+            />
           </div>
         </div>
 

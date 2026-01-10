@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import { dataStore, UNCATEGORIZED_SCENARIO_ID } from '../store/dataStore';
 import BottomNav from './BottomNav';
+import FormulaRenderer from './FormulaRenderer';
 
 interface HomePageProps {
   onScenarioClick: (scenarioId: string, targetStepId?: string) => void;
@@ -415,7 +416,25 @@ export default function HomePage({
               >
                 <div className="text-foreground mb-1">{formula.name}</div>
                 <div className="text-sm text-muted-foreground font-mono">
-                  {formula.expression}
+                  {(formula.structureTree || formula.structureData) ? (
+            <FormulaRenderer
+              root={(formula.structureTree || formula.structureData) as any}
+              fallback={(formula.structureTree || formula.structureData) ? (
+            <FormulaRenderer
+              root={(formula.structureTree || formula.structureData) as any}
+              fallback={formula.expression}
+              maskBlocks={[]}
+              className=""
+            />
+          ) : (
+            formula.expression
+          )}
+              maskBlocks={[]}
+              className=""
+            />
+          ) : (
+            formula.expression
+          )}
                 </div>
               </button>
             </div>

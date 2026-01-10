@@ -3,6 +3,7 @@ import { ChevronDown, MoreVertical, Plus, ChevronLeft, Maximize2, Minimize2, X }
 import { dataStore } from '../store/dataStore';
 import { UNCATEGORIZED_SCENARIO_ID } from '../store/dataStore';
 import BottomNav from './BottomNav';
+import FormulaRenderer from './FormulaRenderer';
 
 interface StepListPageProps {
   scenarioId: string;
@@ -25,12 +26,29 @@ export default function StepListPage({
   const [newStepName, setNewStepName] = useState('');
   const [showFormulaSelector, setShowFormulaSelector] = useState<string | null>(null);
 
-  // Step action menu (long-press / right-click / '...' button)
+  // Step action menu ('...' button)
   const [stepMenu, setStepMenu] = useState<null | { stepId: string; x: number; y: number }>(null);
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  const openStepMenu = (stepId: string, x: number, y: number) => {
+  const openStepMenu = (stepId: string, anchorRect?: DOMRect | null) => {
+    const MENU_W = 220;
+    const MENU_H = 110;
+    const P = 12;
+
+    const vw = window.innerWidth || 0;
+    const vh = window.innerHeight || 0;
+
+    let x = anchorRect ? anchorRect.right - MENU_W : vw - MENU_W - P;
+    let y = anchorRect ? anchorRect.bottom + 8 : P;
+
+    if (x < P) x = P;
+    if (x + MENU_W > vw - P) x = Math.max(P, vw - MENU_W - P);
+
+    // If bottom overflow, place above
+    if (y + MENU_H > vh - P && anchorRect) {
+      y = anchorRect.top - MENU_H - 8;
+    }
+    if (y < P) y = P;
+
     setStepMenu({ stepId, x, y });
   };
 
@@ -46,14 +64,6 @@ export default function StepListPage({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [stepMenu]);
-
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current != null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    longPressStartRef.current = null;
-  };
 
   // 订阅数据更新
   useEffect(() => {
@@ -201,26 +211,8 @@ export default function StepListPage({
                 className="px-4 py-3 flex items-center justify-between select-none"
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  openStepMenu(step.id, e.clientX, e.clientY);
+                  openStepMenu(step.id, (e.currentTarget as any)?.getBoundingClientRect?.());
                 }}
-                onPointerDown={(e) => {
-                  // Right click is handled by onContextMenu
-                  if ((e as any).button === 2) return;
-                  clearLongPressTimer();
-                  longPressStartRef.current = { x: e.clientX, y: e.clientY };
-                  longPressTimerRef.current = window.setTimeout(() => {
-                    openStepMenu(step.id, e.clientX, e.clientY);
-                  }, 520);
-                }}
-                onPointerMove={(e) => {
-                  const start = longPressStartRef.current;
-                  if (!start) return;
-                  const dx = Math.abs(e.clientX - start.x);
-                  const dy = Math.abs(e.clientY - start.y);
-                  if (dx + dy > 12) clearLongPressTimer();
-                }}
-                onPointerUp={clearLongPressTimer}
-                onPointerCancel={clearLongPressTimer}
               >
                 <button
                   type="button"
@@ -237,9 +229,9 @@ export default function StepListPage({
                   type="button"
                   aria-label="ステップメニュー"
                   onClick={(e) => {
-                    e.stopPropagation();
-                    openStepMenu(step.id, e.clientX, e.clientY);
-                  }}
+                      e.stopPropagation();
+                      openStepMenu(step.id, (e.currentTarget as HTMLButtonElement).getBoundingClientRect());
+                    }}
                   className="p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-xl transition-colors"
                 >
                   <MoreVertical className="w-4 h-4" />
@@ -263,7 +255,13 @@ export default function StepListPage({
                           className="flex-1 text-left"
                         >
                           <div className="text-sm text-foreground mb-1">{formula.name}</div>
-                          <div className="text-sm text-muted-foreground font-mono">{formula.expression}</div>
+                          <div className="text-sm text-muted-foreground">
+                            <FormulaRenderer
+                              root={(formula as any).structureTree || (formula as any).structureData}
+                              fallback={formula.expression}
+                              className="text-sm text-muted-foreground"
+                            />
+                          </div>
                         </button>
                         {scenarioId !== UNCATEGORIZED_SCENARIO_ID && (
                           <button

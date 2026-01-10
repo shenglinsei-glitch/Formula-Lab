@@ -555,7 +555,129 @@ export default function FormulaStructureEditPage({
     return null;
   };
 
-  // 生成表达式字符串
+  
+  // モバイル用：外へ（現在の子コンテナから外側へ出る）
+  const moveOut = () => {
+    if (cursor.path.length === 0) return;
+    const lastKey = cursor.path[cursor.path.length - 1];
+    if (typeof lastKey !== 'string') return;
+
+    const structPath = cursor.path.slice(0, -1); // ... , structIndex
+    const structIndex = structPath[structPath.length - 1];
+    if (typeof structIndex !== 'number') return;
+
+    const parentContainerPath = structPath.slice(0, -1);
+    setCursor({ path: parentContainerPath, index: structIndex + 1 });
+    setHighlightedForDeletion(null);
+    focusHiddenInput();
+  };
+
+  // モバイル用：中へ（近くの構造へ入る：カーソル位置のノード、なければ直前ノード）
+  const moveIn = () => {
+    const container = getContainerAtPath(root, cursor.path);
+    if (!container) return;
+
+    const candidates: { node: FormulaNode; idx: number }[] = [];
+    if (container.children[cursor.index] && container.children[cursor.index].type !== 'symbol') {
+      candidates.push({ node: container.children[cursor.index], idx: cursor.index });
+    }
+    if (
+      cursor.index > 0 &&
+      container.children[cursor.index - 1] &&
+      container.children[cursor.index - 1].type !== 'symbol'
+    ) {
+      candidates.push({ node: container.children[cursor.index - 1], idx: cursor.index - 1 });
+    }
+
+    const target = candidates[0];
+    if (!target) return;
+
+    const first = getFirstSubContainerPathForNode(target.node);
+    if (!first) return;
+
+    setCursor({ path: [...cursor.path, target.idx, first], index: 0 });
+    setHighlightedForDeletion(null);
+    focusHiddenInput();
+  };
+
+  const getFirstSubContainerPathForNode = (node: FormulaNode): string | null => {
+    switch (node.type) {
+      case 'fraction':
+        return 'numerator';
+      case 'superscript':
+        return 'base';
+      case 'subscript':
+        return 'base';
+      case 'sqrt':
+      case 'abs':
+        return 'content';
+      case 'function':
+        return 'argument';
+      case 'sum':
+      case 'integral':
+        return 'lower';
+      default:
+        return null;
+    }
+  };
+
+  const moveLeft = () => {
+    const container = getContainerAtPath(root, cursor.path);
+    if (!container) return;
+
+    // 通常：同じコンテナ内で左へ
+    if (cursor.index > 0) {
+      setCursor({ ...cursor, index: cursor.index - 1 });
+      setHighlightedForDeletion(null);
+      focusHiddenInput();
+      return;
+    }
+
+    // 先頭で左：外側（親コンテナ）へ戻って、構造ノードの「手前」に移動
+    if (cursor.path.length === 0) return;
+
+    const lastKey = cursor.path[cursor.path.length - 1];
+    if (typeof lastKey !== 'string') return;
+
+    const structPath = cursor.path.slice(0, -1); // ... , structIndex
+    const structIndex = structPath[structPath.length - 1];
+    if (typeof structIndex !== 'number') return;
+
+    const parentContainerPath = structPath.slice(0, -1);
+    setCursor({ path: parentContainerPath, index: structIndex });
+    setHighlightedForDeletion(null);
+    focusHiddenInput();
+  };
+
+  const moveRight = () => {
+    const container = getContainerAtPath(root, cursor.path);
+    if (!container) return;
+
+    // 通常：同じコンテナ内で右へ
+    if (cursor.index < container.children.length) {
+      setCursor({ ...cursor, index: cursor.index + 1 });
+      setHighlightedForDeletion(null);
+      focusHiddenInput();
+      return;
+    }
+
+    // 末尾で右：外側（親コンテナ）へ戻って、構造ノードの「後ろ」に移動（= 外へ と同等）
+    if (cursor.path.length === 0) return;
+
+    const lastKey = cursor.path[cursor.path.length - 1];
+    if (typeof lastKey !== 'string') return;
+
+    const structPath = cursor.path.slice(0, -1); // ... , structIndex
+    const structIndex = structPath[structPath.length - 1];
+    if (typeof structIndex !== 'number') return;
+
+    const parentContainerPath = structPath.slice(0, -1);
+    setCursor({ path: parentContainerPath, index: structIndex + 1 });
+    setHighlightedForDeletion(null);
+    focusHiddenInput();
+  };
+
+// 生成表达式字符串
   const generateExpression = (node: FormulaRoot | FormulaNode): string => {
     if ('children' in node && !('type' in node)) {
       return node.children.map((child) => generateExpressionNode(child)).join(' ');
@@ -807,59 +929,76 @@ export default function FormulaStructureEditPage({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cursor, root, highlightedForDeletion, history, historyIndex]);
 
-  // 隐藏输入框：处理 iOS/Android 软键盘输入
+  // 隐藏输入框：处理 iOS/Android 软键盘输入（IME 対応）
+  // 重要：iOS の IME（中文/日文）では、確定前のローマ字が流れてくるため
+  // 「確定した入力」だけを構造ツリーへ反映する。
+  const lastInputTypeRef = useRef<string>('');
+
   const handleHiddenBeforeInput = (e: any) => {
-    const ne = e.nativeEvent as InputEvent;
+    const ne = e.nativeEvent as InputEvent | undefined;
+    const inputType = ne?.inputType || '';
+    const data = (ne as any)?.data as string | null | undefined;
+
+    lastInputTypeRef.current = inputType;
+
     // Backspace（软键盘删除）
-    if (ne?.inputType === 'deleteContentBackward') {
+    if (inputType === 'deleteContentBackward') {
       e.preventDefault?.();
       deleteAtCursor();
       clearHiddenInput();
-      // 保持焦点，避免键盘收起
       focusHiddenInput();
       return;
     }
 
     // Enter：当作空格（可按你喜好改成换行或忽略）
-    if (ne?.inputType === 'insertLineBreak') {
+    if (inputType === 'insertLineBreak') {
       e.preventDefault?.();
       insertCharacter(' ');
       clearHiddenInput();
       focusHiddenInput();
       return;
     }
-  };
 
-  const handleHiddenCompositionStart = () => {
-    isComposingRef.current = true;
-  };
-
-  const handleHiddenCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    isComposingRef.current = false;
-    const text = (e.data || '').toString();
-    if (text) {
-      // 将提交的文本逐字符插入（和你的节点最小单元逻辑一致）
-      for (const ch of Array.from(text)) insertCharacter(ch);
+    // IME 确认：insertFromComposition（これだけ反映する）
+    if (inputType === 'insertFromComposition') {
+      if (data) {
+        e.preventDefault?.();
+        for (const ch of Array.from(data)) insertCharacter(ch);
+        clearHiddenInput();
+        focusHiddenInput();
+      }
+      return;
     }
-    clearHiddenInput();
-    focusHiddenInput();
+
+    // 通常入力（英数/記号など）：insertText
+    if (inputType === 'insertText') {
+      if (data) {
+        e.preventDefault?.();
+        for (const ch of Array.from(data)) insertCharacter(ch);
+        clearHiddenInput();
+        focusHiddenInput();
+      }
+      return;
+    }
+
+    // 確定前の IME 文字列：insertCompositionText（ここでは何もしない）
+    // ※ preventDefault すると IME が壊れる場合があるので触らない
   };
 
   const handleHiddenInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
-    // composition 期间不处理，等 compositionend
-    if (isComposingRef.current) return;
-
+    // 安全弁：想定外で textarea に残った文字は、確定入力以外はツリーへ入れない。
     const el = e.currentTarget;
     const value = el.value;
     if (!value) return;
 
-    // 普通输入（英文/数字/符号等）
-    for (const ch of Array.from(value)) {
-      // iOS 有时会把回车写进 value
-      if (ch === '\n') {
-        insertCharacter(' ');
-      } else {
-        insertCharacter(ch);
+    const t = lastInputTypeRef.current;
+
+    // composition 中のローマ字等が value に残ることがあるため、基本はクリアだけ
+    // ただし、何らかの理由で beforeinput が効かない環境では value を拾う
+    if (t === 'insertText' || t === 'insertFromComposition') {
+      for (const ch of Array.from(value)) {
+        if (ch === '\n') insertCharacter(' ');
+        else insertCharacter(ch);
       }
     }
 
@@ -896,25 +1035,12 @@ export default function FormulaStructureEditPage({
     { label: 'exp', name: 'exp' },
   ];
 
-  const operatorSymbols = [
-    '=',
-    '+',
-    '-',
-    '×',
-    '÷',
-    '·',
-    ':',
-    '±',
-    '≈',
-    '≡',
-    '≠',
-    '≤',
-    '≥',
-    '∝',
-    '→',
-    '∞',
-    '°',
-    'π',
+  const quickSymbolsRow1 = [
+    '=', '+', '−', '×', '÷', '·', '(', ')', '[', ']', ',', '.'
+  ];
+
+  const quickSymbolsRow2 = [
+    '≠', '≤', '≥', '±', '≈', '∝', '→', '∞', '°', 'π'
   ];
 
   return (
@@ -930,7 +1056,7 @@ export default function FormulaStructureEditPage({
         aria-hidden="true"
         tabIndex={-1}
         className="sr-only"
-        // sr-only 在某些实现里会 display:none（会导致无法 focus），因此用 inline style 强制存在
+        // sr-only 在某些实现里会 display:none（会导致无法 focus），因此用 inline style 強制存在
         style={{
           position: 'fixed',
           bottom: 0,
@@ -942,8 +1068,6 @@ export default function FormulaStructureEditPage({
           pointerEvents: 'none',
         }}
         onBeforeInput={handleHiddenBeforeInput as any}
-        onCompositionStart={handleHiddenCompositionStart}
-        onCompositionEnd={handleHiddenCompositionEnd}
         onInput={handleHiddenInput}
       />
 
@@ -1004,14 +1128,7 @@ export default function FormulaStructureEditPage({
           </div>
         </div>
 
-        {/* 控制提示 */}
-        <div className="border-t border-border px-4 py-2 bg-muted/30">
-          <div className="text-xs text-muted-foreground text-center">
-            キーボード入力可 | Backspace:削除 | Tab:次 | ←→:移動 | Ctrl+Z:元に戻す
-          </div>
-        </div>
-
-        {/* 公式键盘 - 横向滚动，无标题 */}
+        {/* 公式键盘 - 横向滚動，無標題 */}
         <div ref={bottomPanelRef} className="border-t border-border bg-card/50 backdrop-blur-sm fixed left-0 right-0 z-50" style={{ bottom: keyboardInset, paddingBottom: "env(safe-area-inset-bottom)" }}>
           {/* 第一行：构造符号 + 函数 */}
           <div className="px-3 py-3 overflow-x-auto">
@@ -1044,21 +1161,85 @@ export default function FormulaStructureEditPage({
             </div>
           </div>
 
-          {/* 第二行：常用符号 */}
-          <div className="px-3 pb-3 overflow-x-auto border-t border-border/50">
-            <div className="flex gap-2 pt-3 pb-1">
-              {operatorSymbols.map((symbol) => (
-                <button
-                  key={symbol}
-                  onClick={() => {
-                    insertCharacter(symbol);
-                    focusHiddenInput();
-                  }}
-                  className="flex-shrink-0 w-10 h-10 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors flex items-center justify-center"
-                >
-                  {symbol}
-                </button>
-              ))}
+          {/* 第二行：ナビ（左固定） + 簡易記号（右：2行・横スクロール） */}
+          <div className="px-3 pb-3 border-t border-border/50">
+            <div className="flex gap-3 pt-3">
+              {/* 左：ナビ（固定） */}
+              <div className="flex-shrink-0">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      moveOut();
+                    }}
+                    className="w-16 h-10 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors text-sm"
+                  >
+                    外へ
+                  </button>
+                  <button
+                    onClick={() => {
+                      moveIn();
+                    }}
+                    className="w-16 h-10 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors text-sm"
+                  >
+                    中へ
+                  </button>
+                  <button
+                    onClick={() => {
+                      moveLeft();
+                    }}
+                    className="w-16 h-10 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors text-base"
+                    aria-label="左へ"
+                  >
+                    ←
+                  </button>
+                  <button
+                    onClick={() => {
+                      moveRight();
+                    }}
+                    className="w-16 h-10 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors text-base"
+                    aria-label="右へ"
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+
+              {/* 右：記号（2行、どちらも横スクロール） */}
+              <div className="min-w-0 flex-1">
+                <div className="overflow-x-auto">
+                  <div className="flex gap-2 pb-2">
+                    {quickSymbolsRow1.map((symbol) => (
+                      <button
+                        key={symbol}
+                        onClick={() => {
+                          insertCharacter(symbol);
+                          focusHiddenInput();
+                        }}
+                        className="flex-shrink-0 w-10 h-10 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors flex items-center justify-center"
+                      >
+                        {symbol}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <div className="flex gap-2">
+                    {quickSymbolsRow2.map((symbol) => (
+                      <button
+                        key={symbol}
+                        onClick={() => {
+                          insertCharacter(symbol);
+                          focusHiddenInput();
+                        }}
+                        className="flex-shrink-0 w-10 h-10 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors flex items-center justify-center"
+                      >
+                        {symbol}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

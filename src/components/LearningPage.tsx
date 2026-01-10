@@ -4,6 +4,7 @@ import { dataStore } from '../store/dataStore';
 import type { Formula } from '../data/scenarios';
 import LearningSettings from './LearningSettings';
 import BottomNav from './BottomNav';
+import FormulaRenderer from './FormulaRenderer';
 
 // 容器类型
 type Container = {
@@ -480,7 +481,17 @@ export default function LearningPage({ onBack, onNavigateHome }: LearningPagePro
           </div>
           {data && (
             <div className="text-3xl inline-block">
-              {renderContainer(data, [], item.type === 'formula' ? item.maskBlocks : [])}
+              {/* 2D formula renderer */}
+              <FormulaRenderer
+                root={data}
+                fallback={formula.expression}
+                className=""
+                maskBlocks={item.type === 'formula' ? item.maskBlocks : []}
+                isMaskRevealed={(maskId) => revealedMaskIds.has(maskId)}
+                onRevealMask={(maskId) => {
+                  setRevealedMaskIds((prev) => new Set([...Array.from(prev), maskId]));
+                }}
+              />
             </div>
           )}
         </div>

@@ -605,6 +605,10 @@
     margin-right: calc(var(--spacing) * .5);
   }
 
+  .mr-1 {
+    margin-right: calc(var(--spacing) * 1);
+  }
+
   .-mb-1 {
     margin-bottom: calc(var(--spacing) * -1);
   }
@@ -647,6 +651,10 @@
 
   .ml-auto {
     margin-left: auto;
+  }
+
+  .block {
+    display: block;
   }
 
   .flex {
@@ -737,6 +745,10 @@
     width: calc(var(--spacing) * 12);
   }
 
+  .w-16 {
+    width: calc(var(--spacing) * 16);
+  }
+
   .w-full {
     width: 100%;
   }
@@ -755,6 +767,10 @@
 
   .max-w-sm {
     max-width: var(--container-sm);
+  }
+
+  .min-w-0 {
+    min-width: calc(var(--spacing) * 0);
   }
 
   .min-w-\[20px\] {
@@ -814,6 +830,10 @@
     resize: none;
   }
 
+  .grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .grid-cols-4 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -824,6 +844,10 @@
 
   .flex-col {
     flex-direction: column;
+  }
+
+  .items-baseline {
+    align-items: baseline;
   }
 
   .items-center {
@@ -995,6 +1019,16 @@
     border-color: var(--foreground);
   }
 
+  .border-foreground\/70 {
+    border-color: var(--foreground);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .border-foreground\/70 {
+      border-color: color-mix(in oklab, var(--foreground) 70%, transparent);
+    }
+  }
+
   .border-gray-100 {
     border-color: var(--color-gray-100);
   }
@@ -1095,16 +1129,6 @@
 
   .bg-gray-800 {
     background-color: var(--color-gray-800);
-  }
-
-  .bg-muted\/30 {
-    background-color: var(--muted);
-  }
-
-  @supports (color: color-mix(in lab, red, red)) {
-    .bg-muted\/30 {
-      background-color: color-mix(in oklab, var(--muted) 30%, transparent);
-    }
   }
 
   .bg-muted\/50 {
@@ -1336,6 +1360,14 @@
     text-align: left;
   }
 
+  .align-bottom {
+    vertical-align: bottom;
+  }
+
+  .align-middle {
+    vertical-align: middle;
+  }
+
   .font-mono {
     font-family: var(--font-mono);
   }
@@ -1373,6 +1405,15 @@
   .text-xs {
     font-size: var(--text-xs);
     line-height: var(--tw-leading, var(--text-xs--line-height));
+  }
+
+  .text-\[10px\] {
+    font-size: 10px;
+  }
+
+  .leading-none {
+    --tw-leading: 1;
+    line-height: 1;
   }
 
   .leading-relaxed {
