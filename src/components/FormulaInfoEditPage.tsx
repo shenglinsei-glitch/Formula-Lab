@@ -1,527 +1,607 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Undo, Redo } from 'lucide-react';
-import { dataStore } from '../store/dataStore';
+import React, { useState, useEffect } from 'react';
+import { ChevronLeft, ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
+import { dataStore, UNCATEGORIZED_SCENARIO_ID } from '../store/dataStore';
+import type { Formula, Scenario } from '../data/scenarios';
+import ScenarioStepSelector from './ScenarioStepSelector';
+import FormulaRenderer from './FormulaRenderer';
 
-interface FormulaStructureEditPageProps {
+interface FormulaInfoEditPageProps {
   formulaId: string | null;
-  onNext: (expression: string, structureData?: any) => void;
-  onCancel: () => void;
+  expression: string;
+  structureData?: any; // 構造データ（2D表示用）
+  onSave: (formulaData: {
+    name: string;
+    description: string;
+    equivalentExpressions: string[];
+    symbols: SymbolDefinition[];
+    usedInContexts: ContextReference[];
+    usedFormulas: string[];
+    derivableFormulas: string[];
+  }) => void;
+  onBack: () => void; // 返回到構造页
+  onCancel: () => void; // 放弃整个编辑流程
 }
 
-type Container = {
-  children: FormulaNode[];
-};
+interface SymbolDefinition {
+  symbol: string;
+  meaning: string;
+  unit: string;
+}
 
-type FormulaNode =
-  | { type: 'symbol'; value: string }
-  | { type: 'fraction'; numerator: Container; denominator: Container }
-  | { type: 'superscript'; base: Container; exponent: Container }
-  | { type: 'subscript'; base: Container; index: Container }
-  | { type: 'sqrt'; content: Container }
-  | { type: 'sum'; lower: Container; upper: Container; body: Container }
-  | { type: 'integral'; lower: Container; upper: Container; body: Container }
-  | { type: 'function'; name: string; argument: Container }
-  | { type: 'abs'; content: Container };
+interface ContextReference {
+  scenarioId: string;
+  stepId: string;
+}
 
-type FormulaRoot = Container;
-
-type Cursor = {
-  path: (number | string)[];
-  index: number;
-};
-
-type HistoryState = {
-  root: FormulaRoot;
-  cursor: Cursor;
-};
-
-export default function FormulaStructureEditPage({
+export default function FormulaInfoEditPage({
   formulaId,
-  onNext,
+  expression,
+  structureData,
+  onSave,
+  onBack,
   onCancel,
-}: FormulaStructureEditPageProps) {
+}: FormulaInfoEditPageProps) {
   const existingFormula = formulaId ? dataStore.getFormula(formulaId) : null;
 
-  const initialRoot: FormulaRoot = existingFormula?.structureData
-    ? existingFormula.structureData
-    : {
-        children: existingFormula?.expression
-          ? [{ type: 'symbol', value: existingFormula.expression }]
-          : [],
-      };
+  const [formulaName, setFormulaName] = useState(existingFormula?.name || '');
+  const [description, setDescription] = useState(existingFormula?.description || '');
+  const [equivalentExpressions, setEquivalentExpressions] = useState<string[]>(
+    existingFormula?.equivalentExpressions || []
+  );
+  const [symbols, setSymbols] = useState<SymbolDefinition[]>(
+    existingFormula?.symbols || []
+  );
+  const [usedInContexts, setUsedInContexts] = useState<ContextReference[]>(
+    existingFormula?.usedInContexts || []
+  );
+  const [usedFormulas, setUsedFormulas] = useState<string[]>(
+    existingFormula?.usedFormulas || []
+  );
+  const [derivableFormulas, setDerivableFormulas] = useState<string[]>(
+    existingFormula?.derivableFormulas || []
+  );
+  
+  // 折叠状态
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+  const [isEquivalentExpanded, setIsEquivalentExpanded] = useState(false);
+  const [isContextsExpanded, setIsContextsExpanded] = useState(false);
+  const [isSymbolsExpanded, setIsSymbolsExpanded] = useState(true); // 默认展开
+  const [isUsedFormulasExpanded, setIsUsedFormulasExpanded] = useState(false);
+  const [isDerivableExpanded, setIsDerivableExpanded] = useState(false);
 
-  const [root, setRoot] = useState<FormulaRoot>(initialRoot);
-  const [cursor, setCursor] = useState<Cursor>({ path: [], index: 0 });
-  const [highlightedForDeletion, setHighlightedForDeletion] = useState<(number | string)[] | null>(null);
-  const [history, setHistory] = useState<HistoryState[]>([{ root: initialRoot, cursor: { path: [], index: 0 } }]);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  // 选择器状态
+  const [showContextSelector, setShowContextSelector] = useState(false);
+  const [showUsedFormulaSelector, setShowUsedFormulaSelector] = useState(false);
+  const [showDerivableSelector, setShowDerivableSelector] = useState(false);
 
-  const editorRef = useRef<HTMLDivElement>(null);
-  const hiddenInputRef = useRef<HTMLTextAreaElement>(null);
-  const isComposingRef = useRef(false);
-
-  const [keyboardInset, setKeyboardInset] = useState(0);
-  const [bottomPanelHeight, setBottomPanelHeight] = useState(0);
-  const bottomPanelRef = useRef<HTMLDivElement>(null);
-
-  const focusHiddenInput = () => {
-    const el = hiddenInputRef.current;
-    if (!el) return;
-    el.focus();
-  };
-
-  const clearHiddenInput = () => {
-    if (hiddenInputRef.current) {
-      hiddenInputRef.current.value = '';
+  // 自动提取符号（仅在首次加载且没有现有符号时）
+  useEffect(() => {
+    if (!existingFormula && expression && symbols.length === 0) {
+      const extractedSymbols = extractSymbolsFromExpression(expression);
+      setSymbols(extractedSymbols);
+      if (extractedSymbols.length > 0) {
+        setIsSymbolsExpanded(true);
+      }
     }
+  }, [expression]);
+
+  // 从表达式提取符号
+  const extractSymbolsFromExpression = (expr: string): SymbolDefinition[] => {
+    const symbolPattern = /[a-zA-Z]|[α-ωΑ-Ω]|π|Σ|∫/g;
+    const matches = expr.match(symbolPattern) || [];
+    const uniqueSymbols = Array.from(new Set(matches));
+    
+    return uniqueSymbols.map(symbol => ({
+      symbol,
+      meaning: '',
+      unit: ''
+    }));
   };
 
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      setKeyboardInset(inset);
-    };
-    update();
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-    };
-  }, []);
+  // 等价表达式操作
+  const addEquivalentExpression = () => {
+    setEquivalentExpressions([...equivalentExpressions, '']);
+  };
 
-  useEffect(() => {
-    const el = bottomPanelRef.current;
-    if (!el) return;
-    const update = () => setBottomPanelHeight(el.getBoundingClientRect().height);
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const updateEquivalentExpression = (index: number, value: string) => {
+    const updated = [...equivalentExpressions];
+    updated[index] = value;
+    setEquivalentExpressions(updated);
+  };
 
-  const saveHistory = (newRoot: FormulaRoot, newCursor: Cursor) => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push({
-      root: JSON.parse(JSON.stringify(newRoot)),
-      cursor: { ...newCursor },
+  const removeEquivalentExpression = (index: number) => {
+    setEquivalentExpressions(equivalentExpressions.filter((_, i) => i !== index));
+  };
+
+  // 符号操作
+  const updateSymbol = (index: number, field: keyof SymbolDefinition, value: string) => {
+    const updated = [...symbols];
+    updated[index] = { ...updated[index], [field]: value };
+    setSymbols(updated);
+  };
+
+  const removeSymbol = (index: number) => {
+    setSymbols(symbols.filter((_, i) => i !== index));
+  };
+
+  const addSymbol = () => {
+    setSymbols([...symbols, { symbol: '', meaning: '', unit: '' }]);
+  };
+
+  // 场景关联操作
+  const addContext = (scenarioId: string, stepId: string) => {
+    if (!usedInContexts.find(c => c.scenarioId === scenarioId && c.stepId === stepId)) {
+      setUsedInContexts([...usedInContexts, { scenarioId, stepId }]);
+    }
+    setShowContextSelector(false);
+  };
+
+  const removeContext = (index: number) => {
+    setUsedInContexts(usedInContexts.filter((_, i) => i !== index));
+  };
+
+  // 公式关联操作
+  const addUsedFormula = (formulaId: string) => {
+    if (!usedFormulas.includes(formulaId)) {
+      setUsedFormulas([...usedFormulas, formulaId]);
+    }
+    setShowUsedFormulaSelector(false);
+  };
+
+  const removeUsedFormula = (formulaId: string) => {
+    setUsedFormulas(usedFormulas.filter(id => id !== formulaId));
+  };
+
+  const addDerivableFormula = (formulaId: string) => {
+    if (!derivableFormulas.includes(formulaId)) {
+      setDerivableFormulas([...derivableFormulas, formulaId]);
+    }
+    setShowDerivableSelector(false);
+  };
+
+  const removeDerivableFormula = (formulaId: string) => {
+    setDerivableFormulas(derivableFormulas.filter(id => id !== formulaId));
+  };
+
+  // 获取场景/步骤名称
+  const getContextName = (ctx: ContextReference): string => {
+    const scenario = dataStore.getScenario(ctx.scenarioId);
+    if (!scenario) return '不明';
+    const step = scenario.steps.find(st => st.id === ctx.stepId);
+    return `${scenario.name} > ${step?.name || '不明'}`;
+  };
+
+  const handleSave = () => {
+    // 无必填项，直接保存
+    console.log('Saving formula info:', {
+      formulaId,
+      formulaName,
+      expression,
+      description,
+      equivalentExpressions: equivalentExpressions.filter(e => e.trim()),
+      symbols: symbols.filter(s => s.symbol.trim()),
+      usedInContexts,
+      usedFormulas,
+      derivableFormulas
     });
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
+    onSave({
+      name: formulaName,
+      description,
+      equivalentExpressions: equivalentExpressions.filter(e => e.trim()),
+      symbols: symbols.filter(s => s.symbol.trim()),
+      usedInContexts,
+      usedFormulas,
+      derivableFormulas
+    });
   };
 
-  const undo = () => {
-    if (historyIndex > 0) {
-      const prevState = history[historyIndex - 1];
-      setRoot(JSON.parse(JSON.stringify(prevState.root)));
-      setCursor({ ...prevState.cursor });
-      setHistoryIndex(historyIndex - 1);
-      setHighlightedForDeletion(null);
-    }
+  // 计算说明摘要
+  const getDescriptionSummary = () => {
+    if (!description) return '';
+    const lines = description.split('\n');
+    const firstLine = lines[0];
+    return firstLine.length > 30 ? firstLine.substring(0, 30) + '...' : firstLine;
   };
-
-  const redo = () => {
-    if (historyIndex < history.length - 1) {
-      const nextState = history[historyIndex + 1];
-      setRoot(JSON.parse(JSON.stringify(nextState.root)));
-      setCursor({ ...nextState.cursor });
-      setHistoryIndex(historyIndex + 1);
-      setHighlightedForDeletion(null);
-    }
-  };
-
-  const getContainerAtPath = (node: FormulaRoot | FormulaNode, path: (number | string)[]): Container | null => {
-    if (path.length === 0) return 'children' in node ? (node as Container) : null;
-    const [first, ...rest] = path;
-    if ('children' in node) {
-      const container = node as Container;
-      if (typeof first === 'number' && container.children[first]) {
-        return getContainerAtPath(container.children[first], rest);
-      }
-    }
-    if (typeof first === 'string' && first in (node as any)) {
-      const subContainer = (node as any)[first];
-      if (subContainer && 'children' in subContainer) return getContainerAtPath(subContainer, rest);
-    }
-    return null;
-  };
-
-  const insertCharacter = (char: string) => {
-    if (!char) return;
-    const newRoot = JSON.parse(JSON.stringify(root));
-    const container = getContainerAtPath(newRoot, cursor.path);
-    if (!container) return;
-
-    container.children.splice(cursor.index, 0, { type: 'symbol', value: char });
-    const newCursor = { ...cursor, index: cursor.index + 1 };
-    setRoot(newRoot);
-    setCursor(newCursor);
-    saveHistory(newRoot, newCursor);
-    setHighlightedForDeletion(null);
-  };
-
-  const insertStructure = (structureType: string) => {
-    let newNode: FormulaNode;
-    switch (structureType) {
-      case 'fraction': newNode = { type: 'fraction', numerator: { children: [] }, denominator: { children: [] } }; break;
-      case 'superscript': newNode = { type: 'superscript', base: { children: [] }, exponent: { children: [] } }; break;
-      case 'subscript': newNode = { type: 'subscript', base: { children: [] }, index: { children: [] } }; break;
-      case 'sqrt': newNode = { type: 'sqrt', content: { children: [] } }; break;
-      case 'sum': newNode = { type: 'sum', lower: { children: [] }, upper: { children: [] }, body: { children: [] } }; break;
-      case 'integral': newNode = { type: 'integral', lower: { children: [] }, upper: { children: [] }, body: { children: [] } }; break;
-      case 'abs': newNode = { type: 'abs', content: { children: [] } }; break;
-      default: return;
-    }
-    const newRoot = JSON.parse(JSON.stringify(root));
-    const container = getContainerAtPath(newRoot, cursor.path);
-    if (container) {
-      container.children.splice(cursor.index, 0, newNode);
-      const firstSubPath = getFirstSubContainerPath(structureType);
-      const newCursor = firstSubPath ? { path: [...cursor.path, cursor.index, firstSubPath], index: 0 } : { ...cursor, index: cursor.index + 1 };
-      setRoot(newRoot);
-      setCursor(newCursor);
-      saveHistory(newRoot, newCursor);
-      setHighlightedForDeletion(null);
-    }
-  };
-
-  const insertFunction = (functionName: string) => {
-    const newNode: FormulaNode = { type: 'function', name: functionName, argument: { children: [] } };
-    const newRoot = JSON.parse(JSON.stringify(root));
-    const container = getContainerAtPath(newRoot, cursor.path);
-    if (container) {
-      container.children.splice(cursor.index, 0, newNode);
-      const newCursor = { path: [...cursor.path, cursor.index, 'argument'], index: 0 };
-      setRoot(newRoot);
-      setCursor(newCursor);
-      saveHistory(newRoot, newCursor);
-      setHighlightedForDeletion(null);
-    }
-  };
-
-  const getFirstSubContainerPath = (structureType: string): string | null => {
-    switch (structureType) {
-      case 'fraction': return 'numerator';
-      case 'superscript': case 'subscript': return 'base';
-      case 'sqrt': case 'abs': return 'content';
-      case 'function': return 'argument';
-      case 'sum': case 'integral': return 'lower';
-      default: return null;
-    }
-  };
-
-  const deleteAtCursor = () => {
-    if (cursor.index === 0 && cursor.path.length === 0) {
-      setHighlightedForDeletion(null);
-      return;
-    }
-    const newRoot = JSON.parse(JSON.stringify(root));
-    const container = getContainerAtPath(newRoot, cursor.path);
-    if (!container) return;
-
-    if (cursor.index > 0) {
-      const prevIndex = cursor.index - 1;
-      const prevNodePath = [...cursor.path, prevIndex];
-      const prevNode = container.children[prevIndex];
-      const isHighlighted = highlightedForDeletion && JSON.stringify(highlightedForDeletion) === JSON.stringify(prevNodePath);
-
-      if (prevNode.type === 'symbol') {
-        container.children.splice(prevIndex, 1);
-        const newCursor = { ...cursor, index: cursor.index - 1 };
-        setRoot(newRoot);
-        setCursor(newCursor);
-        saveHistory(newRoot, newCursor);
-        setHighlightedForDeletion(null);
-      } else {
-        if (isHighlighted) {
-          container.children.splice(prevIndex, 1);
-          const newCursor = { ...cursor, index: cursor.index - 1 };
-          setRoot(newRoot);
-          setCursor(newCursor);
-          saveHistory(newRoot, newCursor);
-          setHighlightedForDeletion(null);
-        } else {
-          setHighlightedForDeletion(prevNodePath);
-        }
-      }
-    } else if (cursor.path.length > 0) {
-      const lastKey = cursor.path[cursor.path.length - 1];
-      if (typeof lastKey === 'string') {
-        const structPath = cursor.path.slice(0, -1);
-        const structIndex = structPath[structPath.length - 1];
-        if (typeof structIndex === 'number') {
-          const parentContainerPath = structPath.slice(0, -1);
-          const parentContainer = getContainerAtPath(newRoot, parentContainerPath);
-          if (parentContainer) {
-            const structNodePath = structPath;
-            const isHighlighted = highlightedForDeletion && JSON.stringify(highlightedForDeletion) === JSON.stringify(structNodePath);
-            if (isHighlighted) {
-              parentContainer.children.splice(structIndex, 1);
-              const newCursor = { path: parentContainerPath, index: structIndex };
-              setRoot(newRoot);
-              setCursor(newCursor);
-              saveHistory(newRoot, newCursor);
-              setHighlightedForDeletion(null);
-            } else {
-              setHighlightedForDeletion(structNodePath);
-            }
-          }
-        }
-      }
-    }
-  };
-
-  const moveOut = () => {
-    if (cursor.path.length === 0) return;
-    const structPath = cursor.path.slice(0, -1);
-    const structIndex = structPath[structPath.length - 1];
-    if (typeof structIndex !== 'number') return;
-    setCursor({ path: structPath.slice(0, -1), index: structIndex + 1 });
-    setHighlightedForDeletion(null);
-    focusHiddenInput();
-  };
-
-  const moveIn = () => {
-    const container = getContainerAtPath(root, cursor.path);
-    if (!container) return;
-    const targetIdx = container.children[cursor.index] ? cursor.index : (cursor.index > 0 ? cursor.index - 1 : -1);
-    if (targetIdx === -1) return;
-    const targetNode = container.children[targetIdx];
-    if (targetNode.type === 'symbol') return;
-    const first = getFirstSubContainerPath(targetNode.type);
-    if (!first) return;
-    setCursor({ path: [...cursor.path, targetIdx, first], index: 0 });
-    setHighlightedForDeletion(null);
-    focusHiddenInput();
-  };
-
-  const moveLeft = () => {
-    if (cursor.index > 0) {
-      setCursor({ ...cursor, index: cursor.index - 1 });
-    } else if (cursor.path.length > 0) {
-      const structPath = cursor.path.slice(0, -1);
-      const structIndex = structPath[structPath.length - 1];
-      if (typeof structIndex === 'number') setCursor({ path: structPath.slice(0, -1), index: structIndex });
-    }
-    setHighlightedForDeletion(null);
-    focusHiddenInput();
-  };
-
-  const moveRight = () => {
-    const container = getContainerAtPath(root, cursor.path);
-    if (container && cursor.index < container.children.length) {
-      setCursor({ ...cursor, index: cursor.index + 1 });
-    } else if (cursor.path.length > 0) {
-      const structPath = cursor.path.slice(0, -1);
-      const structIndex = structPath[structPath.length - 1];
-      if (typeof structIndex === 'number') setCursor({ path: structPath.slice(0, -1), index: structIndex + 1 });
-    }
-    setHighlightedForDeletion(null);
-    focusHiddenInput();
-  };
-
-  const handleHiddenInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (isComposingRef.current) return;
-    const val = e.target.value;
-    if (val) {
-      for (const char of Array.from(val)) {
-        insertCharacter(char);
-      }
-      clearHiddenInput();
-    }
-  };
-
-  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    isComposingRef.current = false;
-    const val = e.data;
-    if (val) {
-      for (const char of Array.from(val)) {
-        insertCharacter(char);
-      }
-    }
-    // 延迟清除，防止 React 在某些浏览器下因异步导致状态丢失
-    setTimeout(clearHiddenInput, 10);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (isComposingRef.current) return;
-    if (e.key === 'Backspace') {
-      e.preventDefault();
-      deleteAtCursor();
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      moveLeft();
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      moveRight();
-    }
-  };
-
-  const generateExpression = (node: FormulaRoot | FormulaNode): string => {
-    if ('children' in node && !('type' in node)) return node.children.map((child) => generateExpression(child)).join('');
-    const n = node as FormulaNode;
-    switch (n.type) {
-      case 'symbol': return n.value;
-      case 'fraction': return `(${generateExpression(n.numerator)})/(${generateExpression(n.denominator)})`;
-      case 'superscript': return `${generateExpression(n.base)}^{${generateExpression(n.exponent)}}`;
-      case 'subscript': return `${generateExpression(n.base)}_{${generateExpression(n.index)}}`;
-      case 'sqrt': return `√(${generateExpression(n.content)})`;
-      case 'abs': return `|${generateExpression(n.content)}|`;
-      case 'function': return `${n.name}(${generateExpression(n.argument)})`;
-      case 'sum': return `Σ[${generateExpression(n.lower)}→${generateExpression(n.upper)}](${generateExpression(n.body)})`;
-      case 'integral': return `∫[${generateExpression(n.lower)}→${generateExpression(n.upper)}](${generateExpression(n.body)})`;
-      default: return '';
-    }
-  };
-
-  const renderContainer = (container: Container, path: (number | string)[]): JSX.Element => {
-    const isCursorHere = JSON.stringify(cursor.path) === JSON.stringify(path);
-    return (
-      <div className="inline-flex items-center gap-0.5 min-h-[1.5em]">
-        {container.children.length === 0 ? (
-          <span
-            className={`inline-block w-4 h-6 border border-dashed ${isCursorHere ? 'border-primary bg-primary/10' : 'border-muted-foreground/30'} rounded cursor-text`}
-            onClick={(e) => { e.stopPropagation(); setCursor({ path, index: 0 }); focusHiddenInput(); }}
-          />
-        ) : (
-          container.children.map((child, i) => (
-            <React.Fragment key={i}>
-              {isCursorHere && cursor.index === i && <span className="inline-block w-0.5 h-6 bg-primary animate-pulse" />}
-              {renderNode(child, [...path, i])}
-            </React.Fragment>
-          ))
-        )}
-        {isCursorHere && cursor.index === container.children.length && <span className="inline-block w-0.5 h-6 bg-primary animate-pulse" />}
-      </div>
-    );
-  };
-
-  const renderNode = (node: FormulaNode, path: (number | string)[]): JSX.Element => {
-    const isHighlighted = highlightedForDeletion && JSON.stringify(highlightedForDeletion) === JSON.stringify(path);
-    const highlightClass = isHighlighted ? 'ring-2 ring-destructive bg-destructive/10' : '';
-    const clickHandler = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      const parentPath = path.slice(0, -1);
-      const index = path[path.length - 1] as number;
-      setCursor({ path: parentPath, index: index + 1 });
-      setHighlightedForDeletion(null);
-      focusHiddenInput();
-    };
-
-    switch (node.type) {
-      case 'symbol':
-        return <span className={`inline-block px-0.5 cursor-text hover:bg-muted rounded ${highlightClass}`} onClick={clickHandler}>{node.value}</span>;
-      case 'fraction':
-        return (
-          <div className={`inline-flex flex-col items-center px-1 mx-1 border border-transparent rounded ${highlightClass}`}>
-            <div className="border-b border-foreground px-1">{renderContainer(node.numerator, [...path, 'numerator'])}</div>
-            <div className="px-1">{renderContainer(node.denominator, [...path, 'denominator'])}</div>
-          </div>
-        );
-      case 'superscript':
-        return (
-          <div className={`inline-flex items-start mx-0.5 ${highlightClass}`}>
-            <span>{renderContainer(node.base, [...path, 'base'])}</span>
-            <span className="text-xs scale-75 origin-top-left -mt-1">{renderContainer(node.exponent, [...path, 'exponent'])}</span>
-          </div>
-        );
-      case 'subscript':
-        return (
-          <div className={`inline-flex items-end mx-0.5 ${highlightClass}`}>
-            <span>{renderContainer(node.base, [...path, 'base'])}</span>
-            <span className="text-xs scale-75 origin-bottom-left -mb-1">{renderContainer(node.index, [...path, 'index'])}</span>
-          </div>
-        );
-      case 'sqrt':
-        return (
-          <div className={`inline-flex items-center mx-1 border-t-2 border-foreground pt-0.5 ${highlightClass}`}>
-            <span className="text-xl mr-0.5 -ml-1">√</span>
-            {renderContainer(node.content, [...path, 'content'])}
-          </div>
-        );
-      case 'abs':
-        return <div className={`inline-flex items-center mx-1 px-1 border-x border-foreground ${highlightClass}`}>{renderContainer(node.content, [...path, 'content'])}</div>;
-      case 'function':
-        return <div className={`inline-flex items-center ${highlightClass}`}>{node.name}({renderContainer(node.argument, [...path, 'argument'])})</div>;
-      case 'sum':
-      case 'integral':
-        const Symbol = node.type === 'sum' ? 'Σ' : '∫';
-        return (
-          <div className={`inline-flex items-center gap-1 mx-1 ${highlightClass}`}>
-            <div className="flex flex-col items-center text-[10px]">
-              <div>{renderContainer(node.upper, [...path, 'upper'])}</div>
-              <span className="text-2xl leading-none">{Symbol}</span>
-              <div>{renderContainer(node.lower, [...path, 'lower'])}</div>
-            </div>
-            {renderContainer(node.body, [...path, 'body'])}
-          </div>
-        );
-      default: return <span>?</span>;
-    }
-  };
-
-  const symbols = ['=', '+', '−', '×', '÷', '·', '(', ')', '[', ']', '≠', '≤', '≥', '±', '≈', '∝', '→', '∞', '°', 'π'];
-  const structures = [
-    { label: 'ᵃ⁄ᵦ', type: 'fraction' }, { label: 'x²', type: 'superscript' }, { label: 'xₐ', type: 'subscript' },
-    { label: '√', type: 'sqrt' }, { label: 'Σ', type: 'sum' }, { label: '∫', type: 'integral' }, { label: '|x|', type: 'abs' }
-  ];
-  const funcs = ['sin', 'cos', 'tan', 'log', 'ln', 'exp'];
 
   return (
-    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-      <textarea
-        ref={hiddenInputRef}
-        className="fixed opacity-0 pointer-events-none"
-        onInput={handleHiddenInput}
-        onKeyDown={handleKeyDown}
-        onCompositionStart={() => (isComposingRef.current = true)}
-        onCompositionEnd={handleCompositionEnd}
-        autoFocus
-      />
-
-      <header className="h-14 flex items-center justify-between px-4 border-b shrink-0">
-        <button onClick={onCancel} className="p-2"><ChevronLeft /></button>
-        <div className="flex gap-2">
-          <button onClick={undo} disabled={historyIndex === 0} className="p-2 disabled:opacity-30"><Undo /></button>
-          <button onClick={redo} disabled={historyIndex === history.length - 1} className="p-2 disabled:opacity-30"><Redo /></button>
-        </div>
-        <button onClick={() => onNext(generateExpression(root), root)} className="bg-primary text-primary-foreground px-4 py-1.5 rounded-lg flex items-center gap-1">
-          完成 <ChevronRight size={16} />
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Header */}
+      <header className="px-5 py-4 flex items-center justify-between border-b border-border">
+        <button onClick={onBack} className="p-2 hover:bg-primary/10 rounded-xl transition-colors" title="構造編集に戻る">
+          <ChevronLeft className="w-5 h-5 text-foreground" />
+        </button>
+        <h1 className="flex-1 text-center text-foreground">公式編集（情報）</h1>
+        <button 
+          onClick={onCancel}
+          className="px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 rounded-xl transition-colors"
+          title="編集を破棄"
+        >
+          削除
         </button>
       </header>
 
-      <main className="flex-1 overflow-auto p-8 flex justify-center items-start" 
-            onClick={() => focusHiddenInput()}
-            style={{ paddingBottom: bottomPanelHeight + keyboardInset + 20 }}>
-        <div className="text-4xl">{renderContainer(root, [])}</div>
+      {/* Main Content */}
+      <main className="flex-1 p-4 pb-20 overflow-y-auto space-y-3">
+        {/* 公式本体 */}
+        <div className="glass-card rounded-2xl p-5">
+          <div className="text-xs text-muted-foreground mb-3">公式</div>
+          <div className="text-2xl text-foreground text-center overflow-x-auto">
+            {(structureData || existingFormula?.structureTree || existingFormula?.structureData) ? (
+              <FormulaRenderer
+                root={(structureData || existingFormula?.structureTree || existingFormula?.structureData) as any}
+                fallback={expression || '（公式が入力されていません）'}
+                maskBlocks={[]}
+              />
+            ) : (
+              <span className="font-mono">{expression || '（公式が入力されていません）'}</span>
+            )}
+          </div>
+        </div>
+
+        {/* 公式名 */}
+        <div>
+          <div className="text-xs text-muted-foreground mb-2 px-1">公式名（任意）</div>
+          <input
+            type="text"
+            value={formulaName}
+            onChange={(e) => setFormulaName(e.target.value)}
+            placeholder="例：運動方程式"
+            className="w-full px-4 py-3 glass-card rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground"
+          />
+        </div>
+
+        {/* 等価表現 */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setIsEquivalentExpanded(!isEquivalentExpanded)}
+            className="w-full px-5 py-4 flex items-center gap-3 hover:bg-primary/5 transition-colors"
+          >
+            <div className="flex-1 text-left text-sm text-foreground">
+              同値な表現
+              {equivalentExpressions.length > 0 && (
+                <span className="ml-2 text-muted-foreground">({equivalentExpressions.length})</span>
+              )}
+            </div>
+            <div className="text-primary">
+              {isEquivalentExpanded ? (
+                <ChevronDown className="w-5 h-5" />
+              ) : (
+                <ChevronRight className="w-5 h-5" />
+              )}
+            </div>
+          </button>
+
+          {isEquivalentExpanded && (
+            <div className="border-t border-border p-4 space-y-2">
+              {equivalentExpressions.map((expr, index) => (
+                <div key={index} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={expr}
+                    onChange={(e) => updateEquivalentExpression(index, e.target.value)}
+                    placeholder="等価な表現を入力"
+                    className="flex-1 px-4 py-2.5 glass-card rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground"
+                  />
+                  <button
+                    onClick={() => removeEquivalentExpression(index)}
+                    className="p-2.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-xl transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={addEquivalentExpression}
+                className="w-full glass-card rounded-xl px-4 py-3 text-sm text-muted-foreground hover:text-primary hover:shadow-md transition-all flex items-center justify-center gap-2 border border-dashed border-primary/30"
+              >
+                <Plus className="w-4 h-4" />
+                <span>表現を追加</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 公式の説明 */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setIsDescriptionExpanded(!isDescriptionExpanded)}
+            className="w-full px-5 py-4 flex items-center gap-3 hover:bg-primary/5 transition-colors"
+          >
+            <div className="flex-1 text-left text-sm text-foreground">公式の説明</div>
+            <div className="text-primary">
+              {isDescriptionExpanded ? (
+                <ChevronDown className="w-5 h-5" />
+              ) : (
+                <ChevronRight className="w-5 h-5" />
+              )}
+            </div>
+          </button>
+
+          {isDescriptionExpanded && (
+            <div className="border-t border-border p-4">
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="公式の意味や使い方を入力..."
+                rows={4}
+                className="w-full px-4 py-3 glass-card rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground resize-none"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* この公式が使われる場面 */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setIsContextsExpanded(!isContextsExpanded)}
+            className="w-full px-5 py-4 flex items-center gap-3 hover:bg-primary/5 transition-colors"
+          >
+            <div className="flex-1 text-left text-sm text-foreground">
+              この公式が使われる場面
+              {usedInContexts.length > 0 && (
+                <span className="ml-2 text-muted-foreground">({usedInContexts.length})</span>
+              )}
+            </div>
+            <div className="text-primary">
+              {isContextsExpanded ? (
+                <ChevronDown className="w-5 h-5" />
+              ) : (
+                <ChevronRight className="w-5 h-5" />
+              )}
+            </div>
+          </button>
+
+          {isContextsExpanded && (
+            <div className="border-t border-border p-4">
+              {usedInContexts.map((ctx, index) => (
+                <div
+                  key={index}
+                  className="flex items-center gap-2 mb-2 px-3 py-2 bg-gray-50 rounded"
+                >
+                  <div className="flex-1 text-sm text-gray-700">
+                    {getContextName(ctx)}
+                  </div>
+                  <button
+                    onClick={() => removeContext(index)}
+                    className="p-1 text-gray-400 hover:text-red-500"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+
+              {/* 新UI：拆分场景和步骤选择器 */}
+              <ScenarioStepSelector onAdd={addContext} />
+            </div>
+          )}
+        </div>
+
+        {/* 記号の意味 */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setIsSymbolsExpanded(!isSymbolsExpanded)}
+            className="w-full px-5 py-4 flex items-center gap-3 hover:bg-primary/5 transition-colors"
+          >
+            <div className="flex-1 text-left text-sm text-foreground">
+              記号の意味
+              {symbols.length > 0 && (
+                <span className="ml-2 text-muted-foreground">({symbols.length})</span>
+              )}
+            </div>
+            <div className="text-primary">
+              {isSymbolsExpanded ? (
+                <ChevronDown className="w-5 h-5" />
+              ) : (
+                <ChevronRight className="w-5 h-5" />
+              )}
+            </div>
+          </button>
+
+          {isSymbolsExpanded && (
+            <div className="border-t border-border p-4">
+              <div className="text-xs text-muted-foreground mb-2">記号 / 意味 / 単位</div>
+              {symbols.map((sym, index) => (
+                <div key={index} className="grid grid-cols-[60px_1fr_80px_32px] gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={sym.symbol}
+                    onChange={(e) => updateSymbol(index, 'symbol', e.target.value)}
+                    placeholder="記号"
+                    className="px-2 py-2 border border-gray-200 rounded text-sm text-center font-mono focus:outline-none focus:border-gray-400"
+                  />
+                  <input
+                    type="text"
+                    value={sym.meaning}
+                    onChange={(e) => updateSymbol(index, 'meaning', e.target.value)}
+                    placeholder="意味"
+                    className="px-2 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:border-gray-400"
+                  />
+                  <input
+                    type="text"
+                    value={sym.unit}
+                    onChange={(e) => updateSymbol(index, 'unit', e.target.value)}
+                    placeholder="単位"
+                    className="px-2 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:border-gray-400"
+                  />
+                  <button
+                    onClick={() => removeSymbol(index)}
+                    className="p-2 text-gray-400 hover:text-red-500"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={addSymbol}
+                className="w-full px-3 py-2 border border-dashed border-gray-300 rounded text-sm text-gray-500 hover:bg-gray-50 flex items-center justify-center gap-1"
+              >
+                <Plus className="w-3 h-3" />
+                <span>記号を追加</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 使用する公式 */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setIsUsedFormulasExpanded(!isUsedFormulasExpanded)}
+            className="w-full px-5 py-4 flex items-center gap-3 hover:bg-primary/5 transition-colors"
+          >
+            <div className="flex-1 text-left text-sm text-foreground">
+              使用する公式
+              {usedFormulas.length > 0 && (
+                <span className="ml-2 text-muted-foreground">({usedFormulas.length})</span>
+              )}
+            </div>
+            <div className="text-primary">
+              {isUsedFormulasExpanded ? (
+                <ChevronDown className="w-5 h-5" />
+              ) : (
+                <ChevronRight className="w-5 h-5" />
+              )}
+            </div>
+          </button>
+
+          {isUsedFormulasExpanded && (
+            <div className="border-t border-border p-4">
+              {usedFormulas.map((fId) => {
+                const formula = dataStore.getFormula(fId);
+                return (
+                  <div
+                    key={fId}
+                    className="flex items-center gap-2 mb-2 px-3 py-2 bg-gray-50 rounded"
+                  >
+                    <div className="flex-1">
+                      <div className="text-sm text-gray-700">{formula?.name || fId}</div>
+                      <div className="text-xs text-gray-400 font-mono">
+                        {formula?.expression}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeUsedFormula(fId)}
+                      className="p-1 text-gray-400 hover:text-red-500"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })}
+
+              {showUsedFormulaSelector ? (
+                <div className="border border-gray-300 rounded max-h-60 overflow-y-auto mb-2">
+                  {Object.values(dataStore.getFormulas()).map((formula) => (
+                    <button
+                      key={formula.id}
+                      onClick={() => addUsedFormula(formula.id)}
+                      className="w-full px-3 py-2 text-left hover:bg-gray-50 border-b border-gray-100"
+                      disabled={usedFormulas.includes(formula.id)}
+                    >
+                      <div className="text-sm text-gray-700">{formula.name}</div>
+                      <div className="text-xs text-gray-400 font-mono">
+                        {formula.expression}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowUsedFormulaSelector(true)}
+                  className="w-full px-3 py-2 border border-dashed border-gray-300 rounded text-sm text-gray-500 hover:bg-gray-50 flex items-center justify-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>公式を選択</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 導出できる公式 */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setIsDerivableExpanded(!isDerivableExpanded)}
+            className="w-full px-5 py-4 flex items-center gap-3 hover:bg-primary/5 transition-colors"
+          >
+            <div className="flex-1 text-left text-sm text-foreground">
+              導出できる公式
+              {derivableFormulas.length > 0 && (
+                <span className="ml-2 text-muted-foreground">({derivableFormulas.length})</span>
+              )}
+            </div>
+            <div className="text-primary">
+              {isDerivableExpanded ? (
+                <ChevronDown className="w-5 h-5" />
+              ) : (
+                <ChevronRight className="w-5 h-5" />
+              )}
+            </div>
+          </button>
+
+          {isDerivableExpanded && (
+            <div className="border-t border-border p-4">
+              {derivableFormulas.map((fId) => {
+                const formula = dataStore.getFormula(fId);
+                return (
+                  <div
+                    key={fId}
+                    className="flex items-center gap-2 mb-2 px-3 py-2 bg-gray-50 rounded"
+                  >
+                    <div className="flex-1">
+                      <div className="text-sm text-gray-700">{formula?.name || fId}</div>
+                      <div className="text-xs text-gray-400 font-mono">
+                        {formula?.expression}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeDerivableFormula(fId)}
+                      className="p-1 text-gray-400 hover:text-red-500"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })}
+
+              {showDerivableSelector ? (
+                <div className="border border-gray-300 rounded max-h-60 overflow-y-auto mb-2">
+                  {Object.values(dataStore.getFormulas()).map((formula) => (
+                    <button
+                      key={formula.id}
+                      onClick={() => addDerivableFormula(formula.id)}
+                      className="w-full px-3 py-2 text-left hover:bg-gray-50 border-b border-gray-100"
+                      disabled={derivableFormulas.includes(formula.id)}
+                    >
+                      <div className="text-sm text-gray-700">{formula.name}</div>
+                      <div className="text-xs text-gray-400 font-mono">
+                        {formula.expression}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowDerivableSelector(true)}
+                  className="w-full px-3 py-2 border border-dashed border-gray-300 rounded text-sm text-gray-500 hover:bg-gray-50 flex items-center justify-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>公式を選択</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </main>
 
-      <footer ref={bottomPanelRef} 
-              className="fixed bottom-0 left-0 w-full bg-card border-t safe-area-bottom shrink-0 z-50"
-              style={{ transform: `translateY(-${keyboardInset}px)` }}>
-        <div className="overflow-x-auto flex gap-2 p-2 border-b">
-          {structures.map(s => (
-            <button key={s.type} onClick={() => insertStructure(s.type)} className="shrink-0 px-4 py-2 bg-muted rounded-md">{s.label}</button>
-          ))}
-          {funcs.map(f => (
-            <button key={f} onClick={() => insertFunction(f)} className="shrink-0 px-4 py-2 bg-muted rounded-md">{f}</button>
-          ))}
-        </div>
-        <div className="flex p-2 gap-2">
-          <div className="grid grid-cols-2 gap-1 shrink-0">
-            <button onClick={moveLeft} className="p-2 bg-muted rounded">←</button>
-            <button onClick={moveRight} className="p-2 bg-muted rounded">→</button>
-            <button onClick={moveIn} className="p-2 bg-muted rounded text-xs">中</button>
-            <button onClick={moveOut} className="p-2 bg-muted rounded text-xs">外</button>
-          </div>
-          <div className="flex-1 overflow-x-auto flex gap-1 items-center">
-            {symbols.map(s => (
-              <button key={s} onClick={() => insertCharacter(s)} className="shrink-0 w-10 h-10 bg-muted rounded flex items-center justify-center">{s}</button>
-            ))}
-          </div>
-        </div>
-      </footer>
+      {/* Bottom Actions - 只有保存按钮 */}
+      <nav className="fixed bottom-0 left-0 right-0 glass-nav px-5 py-4">
+        <button 
+          onClick={handleSave}
+          className="w-full py-4 bg-primary text-primary-foreground rounded-2xl shadow-lg hover:opacity-90 transition-opacity"
+        >
+          保存
+        </button>
+      </nav>
     </div>
   );
 }

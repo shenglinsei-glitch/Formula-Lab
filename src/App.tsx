@@ -357,6 +357,7 @@ export default function App() {
         <FormulaInfoEditPage
           formulaId={navState.selectedFormula}
           expression={navState.tempFormula?.expression || ''}
+          structureData={navState.tempFormula?.structureTree || navState.tempFormula?.structureData}
           onSave={saveFormula}
           onBack={backToFormulaStructureEdit}
           onCancel={cancelEdit}
