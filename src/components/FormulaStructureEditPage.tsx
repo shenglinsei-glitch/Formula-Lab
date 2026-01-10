@@ -46,14 +46,14 @@ export default function FormulaStructureEditPage({
   onCancel,
 }: FormulaStructureEditPageProps) {
   const existingFormula = formulaId ? dataStore.getFormula(formulaId) : null;
-  
+
   // 初始化公式树 - 优先使用structureData，否则从expression创建简单节点
-  const initialRoot: FormulaRoot = existingFormula?.structureData 
+  const initialRoot: FormulaRoot = existingFormula?.structureData
     ? existingFormula.structureData
     : {
-        children: existingFormula?.expression 
+        children: existingFormula?.expression
           ? [{ type: 'symbol', value: existingFormula.expression }]
-          : []
+          : [],
       };
 
   const [root, setRoot] = useState<FormulaRoot>(initialRoot);
@@ -61,22 +61,60 @@ export default function FormulaStructureEditPage({
   // 光标位置
   const [cursor, setCursor] = useState<Cursor>({
     path: [], // 根容器
-    index: 0
+    index: 0,
   });
 
   // 高亮的待删除结构路径
-  const [highlightedForDeletion, setHighlightedForDeletion] = useState<(number | string)[] | null>(null);
-  
+  const [highlightedForDeletion, setHighlightedForDeletion] = useState<
+    (number | string)[] | null
+  >(null);
+
   // Undo/Redo 历史
-  const [history, setHistory] = useState<HistoryState[]>([{ root: initialRoot, cursor: { path: [], index: 0 } }]);
+  const [history, setHistory] = useState<HistoryState[]>([
+    { root: initialRoot, cursor: { path: [], index: 0 } },
+  ]);
   const [historyIndex, setHistoryIndex] = useState(0);
-  
+
   const editorRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * iOS Safari/PWA 软键盘兼容：
+   * 这个编辑器是“自绘光标 + 自定义节点树”，本身没有真实 input。
+   * iOS 不会为 div 弹出系统键盘，因此我们用一个隐藏 textarea 来“召唤键盘”
+   * 并把用户输入同步到 insertCharacter/deleteAtCursor 等逻辑。
+   */
+  const hiddenInputRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
+
+  const focusHiddenInput = () => {
+    // 必须在用户手势（click/touch）回调内调用才会弹键盘
+    // iOS 上偶尔需要先 blur 再 focus 才稳定
+    const el = hiddenInputRef.current;
+    if (!el) return;
+    try {
+      el.focus({ preventScroll: true } as any);
+    } catch {
+      try {
+        el.focus();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const clearHiddenInput = () => {
+    const el = hiddenInputRef.current;
+    if (!el) return;
+    el.value = '';
+  };
 
   // 保存历史记录
   const saveHistory = (newRoot: FormulaRoot, newCursor: Cursor) => {
     const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push({ root: JSON.parse(JSON.stringify(newRoot)), cursor: { ...newCursor } });
+    newHistory.push({
+      root: JSON.parse(JSON.stringify(newRoot)),
+      cursor: { ...newCursor },
+    });
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
   };
@@ -104,45 +142,33 @@ export default function FormulaStructureEditPage({
   };
 
   // 获取容器
-  const getContainerAtPath = (node: FormulaRoot | FormulaNode, path: (number | string)[]): Container | null => {
+  const getContainerAtPath = (
+    node: FormulaRoot | FormulaNode,
+    path: (number | string)[]
+  ): Container | null => {
     if (path.length === 0) {
       if ('children' in node) {
         return node as Container;
       }
       return null;
     }
-    
+
     const [first, ...rest] = path;
-    
+
     if ('children' in node) {
       const container = node as Container;
       if (typeof first === 'number' && container.children[first]) {
         return getContainerAtPath(container.children[first], rest);
       }
     }
-    
-    if (typeof first === 'string' && first in node) {
+
+    if (typeof first === 'string' && first in (node as any)) {
       const subContainer = (node as any)[first];
       if (subContainer && 'children' in subContainer) {
         return getContainerAtPath(subContainer, rest);
       }
     }
-    
-    return null;
-  };
 
-  // 获取路径上的节点
-  const getNodeAtPath = (root: FormulaRoot, path: (number | string)[]): FormulaNode | null => {
-    if (path.length === 0) return null;
-    
-    const containerPath = path.slice(0, -1);
-    const nodeIndex = path[path.length - 1];
-    
-    const container = getContainerAtPath(root, containerPath);
-    if (container && typeof nodeIndex === 'number') {
-      return container.children[nodeIndex] || null;
-    }
-    
     return null;
   };
 
@@ -150,7 +176,7 @@ export default function FormulaStructureEditPage({
   const insertNodeAtCursor = (newNode: FormulaNode) => {
     const newRoot = JSON.parse(JSON.stringify(root));
     const container = getContainerAtPath(newRoot, cursor.path);
-    
+
     if (container) {
       container.children.splice(cursor.index, 0, newNode);
       const newCursor = { ...cursor, index: cursor.index + 1 };
@@ -165,14 +191,14 @@ export default function FormulaStructureEditPage({
   const insertCharacter = (char: string) => {
     const newRoot = JSON.parse(JSON.stringify(root));
     const container = getContainerAtPath(newRoot, cursor.path);
-    
+
     if (!container) return;
-    
+
     // 【修正】每个字符都创建独立的 symbol 节点，不再追加
     // 这样学习页才能按最小单元遮挡
     container.children.splice(cursor.index, 0, { type: 'symbol', value: char });
     const newCursor = { ...cursor, index: cursor.index + 1 };
-    
+
     setRoot(newRoot);
     setCursor(newCursor);
     saveHistory(newRoot, newCursor);
@@ -182,33 +208,33 @@ export default function FormulaStructureEditPage({
   // 插入结构
   const insertStructure = (structureType: string) => {
     let newNode: FormulaNode;
-    
+
     switch (structureType) {
       case 'fraction':
         newNode = {
           type: 'fraction',
           numerator: { children: [] },
-          denominator: { children: [] }
+          denominator: { children: [] },
         };
         break;
       case 'superscript':
         newNode = {
           type: 'superscript',
           base: { children: [] },
-          exponent: { children: [] }
+          exponent: { children: [] },
         };
         break;
       case 'subscript':
         newNode = {
           type: 'subscript',
           base: { children: [] },
-          index: { children: [] }
+          index: { children: [] },
         };
         break;
       case 'sqrt':
         newNode = {
           type: 'sqrt',
-          content: { children: [] }
+          content: { children: [] },
         };
         break;
       case 'sum':
@@ -216,7 +242,7 @@ export default function FormulaStructureEditPage({
           type: 'sum',
           lower: { children: [] },
           upper: { children: [] },
-          body: { children: [] }
+          body: { children: [] },
         };
         break;
       case 'integral':
@@ -224,31 +250,31 @@ export default function FormulaStructureEditPage({
           type: 'integral',
           lower: { children: [] },
           upper: { children: [] },
-          body: { children: [] }
+          body: { children: [] },
         };
         break;
       case 'abs':
         newNode = {
           type: 'abs',
-          content: { children: [] }
+          content: { children: [] },
         };
         break;
       default:
         return;
     }
-    
+
     const newRoot = JSON.parse(JSON.stringify(root));
     const container = getContainerAtPath(newRoot, cursor.path);
-    
+
     if (container) {
       container.children.splice(cursor.index, 0, newNode);
-      
+
       // 插入结构后，自动进入第一个子容器
       const firstSubPath = getFirstSubContainerPath(structureType);
-      const newCursor = firstSubPath 
+      const newCursor = firstSubPath
         ? { path: [...cursor.path, cursor.index, firstSubPath], index: 0 }
         : { ...cursor, index: cursor.index + 1 };
-      
+
       setRoot(newRoot);
       setCursor(newCursor);
       saveHistory(newRoot, newCursor);
@@ -261,18 +287,18 @@ export default function FormulaStructureEditPage({
     const newNode: FormulaNode = {
       type: 'function',
       name: functionName,
-      argument: { children: [] }
+      argument: { children: [] },
     };
-    
+
     const newRoot = JSON.parse(JSON.stringify(root));
     const container = getContainerAtPath(newRoot, cursor.path);
-    
+
     if (container) {
       container.children.splice(cursor.index, 0, newNode);
-      
+
       // 插入函数后，自动进入参数容器
       const newCursor = { path: [...cursor.path, cursor.index, 'argument'], index: 0 };
-      
+
       setRoot(newRoot);
       setCursor(newCursor);
       saveHistory(newRoot, newCursor);
@@ -308,21 +334,22 @@ export default function FormulaStructureEditPage({
       setHighlightedForDeletion(null);
       return;
     }
-    
+
     const newRoot = JSON.parse(JSON.stringify(root));
     const container = getContainerAtPath(newRoot, cursor.path);
-    
+
     if (!container) return;
-    
+
     if (cursor.index > 0) {
       const prevIndex = cursor.index - 1;
       const prevNodePath = [...cursor.path, prevIndex];
       const prevNode = container.children[prevIndex];
-      
+
       // 检查是否已经高亮了这个节点
-      const isHighlighted = highlightedForDeletion && 
+      const isHighlighted =
+        highlightedForDeletion &&
         JSON.stringify(highlightedForDeletion) === JSON.stringify(prevNodePath);
-      
+
       if (prevNode.type === 'symbol') {
         // Symbol 节点：直接删除字符或整个节点
         if (prevNode.value.length > 1) {
@@ -357,30 +384,31 @@ export default function FormulaStructureEditPage({
     } else if (cursor.path.length > 0) {
       // 在子容器开头
       const container = getContainerAtPath(newRoot, cursor.path);
-      
+
       if (container && container.children.length === 0) {
         // 当前容器为空，尝试删除包含它的结构节点
         const lastKey = cursor.path[cursor.path.length - 1];
-        
+
         if (typeof lastKey === 'string') {
           // 这是一个结构属性
           const structPath = cursor.path.slice(0, -1);
           const structIndex = structPath[structPath.length - 1];
-          
+
           if (typeof structIndex === 'number') {
             const parentContainerPath = structPath.slice(0, -1);
             const structNodePath = structPath;
-            
+
             const parentContainer = getContainerAtPath(newRoot, parentContainerPath);
             if (parentContainer) {
               const structNode = parentContainer.children[structIndex];
-              
+
               // 检查结构的所有子容器是否都为空
               if (isStructureEmpty(structNode)) {
                 // 检查是否已经高亮了这个结构
-                const isHighlighted = highlightedForDeletion && 
+                const isHighlighted =
+                  highlightedForDeletion &&
                   JSON.stringify(highlightedForDeletion) === JSON.stringify(structNodePath);
-                
+
                 if (isHighlighted) {
                   // 第二次 Backspace：真正删除
                   parentContainer.children.splice(structIndex, 1);
@@ -404,9 +432,9 @@ export default function FormulaStructureEditPage({
   // 检查结构节点是否为空
   const isStructureEmpty = (node: FormulaNode): boolean => {
     if (node.type === 'symbol') return false;
-    
+
     const containers = getSubContainers(node);
-    return containers.every(c => c.children.length === 0);
+    return containers.every((c) => c.children.length === 0);
   };
 
   // 获取节点的所有子容器
@@ -436,19 +464,19 @@ export default function FormulaStructureEditPage({
     if (cursor.path.length === 0) {
       return;
     }
-    
+
     const lastKey = cursor.path[cursor.path.length - 1];
-    
+
     if (typeof lastKey === 'string') {
       const structPath = cursor.path.slice(0, -1);
       const structIndex = structPath[structPath.length - 1];
-      
+
       if (typeof structIndex === 'number') {
         const parentContainer = getContainerAtPath(root, structPath.slice(0, -1));
         if (parentContainer) {
           const structNode = parentContainer.children[structIndex];
           const nextPath = getNextSubContainerPath(structNode, lastKey);
-          
+
           if (nextPath) {
             setCursor({ path: [...structPath, nextPath], index: 0 });
           } else {
@@ -470,24 +498,24 @@ export default function FormulaStructureEditPage({
       abs: ['content'],
       function: ['argument'],
       sum: ['lower', 'upper', 'body'],
-      integral: ['lower', 'upper', 'body']
+      integral: ['lower', 'upper', 'body'],
     };
-    
+
     const sequence = sequences[node.type];
     if (!sequence) return null;
-    
+
     const currentIndex = sequence.indexOf(currentPath);
     if (currentIndex >= 0 && currentIndex < sequence.length - 1) {
       return sequence[currentIndex + 1];
     }
-    
+
     return null;
   };
 
   // 生成表达式字符串
   const generateExpression = (node: FormulaRoot | FormulaNode): string => {
     if ('children' in node && !('type' in node)) {
-      return node.children.map(child => generateExpressionNode(child)).join(' ');
+      return node.children.map((child) => generateExpressionNode(child)).join(' ');
     }
     return generateExpressionNode(node as FormulaNode);
   };
@@ -520,16 +548,17 @@ export default function FormulaStructureEditPage({
   // 渲染容器
   const renderContainer = (container: Container, path: (number | string)[]): JSX.Element => {
     const isCursorHere = JSON.stringify(cursor.path) === JSON.stringify(path);
-    
+
     return (
       <div className="inline-flex items-center gap-0.5">
         {container.children.length === 0 ? (
-          <span 
+          <span
             className={`inline-block w-4 h-5 border border-dashed ${isCursorHere ? 'border-blue-400 bg-blue-50' : 'border-gray-300'} cursor-pointer`}
             onClick={(e) => {
               e.stopPropagation();
               setCursor({ path, index: 0 });
               setHighlightedForDeletion(null);
+              focusHiddenInput();
             }}
           />
         ) : (
@@ -551,10 +580,10 @@ export default function FormulaStructureEditPage({
 
   // 渲染节点
   const renderNode = (node: FormulaNode, path: (number | string)[]): JSX.Element => {
-    const isHighlighted = highlightedForDeletion && 
-      JSON.stringify(highlightedForDeletion) === JSON.stringify(path);
+    const isHighlighted =
+      highlightedForDeletion && JSON.stringify(highlightedForDeletion) === JSON.stringify(path);
     const highlightClass = isHighlighted ? 'ring-2 ring-red-400 bg-red-50' : '';
-    
+
     switch (node.type) {
       case 'symbol':
         return (
@@ -567,6 +596,7 @@ export default function FormulaStructureEditPage({
               if (typeof index === 'number') {
                 setCursor({ path: parentPath, index: index + 1 });
                 setHighlightedForDeletion(null);
+                focusHiddenInput();
               }
             }}
           >
@@ -589,9 +619,7 @@ export default function FormulaStructureEditPage({
       case 'superscript':
         return (
           <div className={`inline-flex items-start mx-0.5 ${highlightClass} rounded`}>
-            <div className="text-base">
-              {renderContainer(node.base, [...path, 'base'])}
-            </div>
+            <div className="text-base">{renderContainer(node.base, [...path, 'base'])}</div>
             <div className="text-xs -mt-1 min-w-[20px]">
               {renderContainer(node.exponent, [...path, 'exponent'])}
             </div>
@@ -601,9 +629,7 @@ export default function FormulaStructureEditPage({
       case 'subscript':
         return (
           <div className={`inline-flex items-end mx-0.5 ${highlightClass} rounded`}>
-            <div className="text-base">
-              {renderContainer(node.base, [...path, 'base'])}
-            </div>
+            <div className="text-base">{renderContainer(node.base, [...path, 'base'])}</div>
             <div className="text-xs -mb-1 min-w-[20px]">
               {renderContainer(node.index, [...path, 'index'])}
             </div>
@@ -624,9 +650,7 @@ export default function FormulaStructureEditPage({
         return (
           <div className={`inline-flex items-center mx-1 ${highlightClass} rounded`}>
             <span className="text-2xl mr-0.5">|</span>
-            <div className="px-1 min-w-[30px]">
-              {renderContainer(node.content, [...path, 'content'])}
-            </div>
+            <div className="px-1 min-w-[30px]">{renderContainer(node.content, [...path, 'content'])}</div>
             <span className="text-2xl ml-0.5">|</span>
           </div>
         );
@@ -636,9 +660,7 @@ export default function FormulaStructureEditPage({
           <div className={`inline-flex items-center mx-0.5 ${highlightClass} rounded`}>
             <span className="text-base">{node.name}</span>
             <span className="text-base">(</span>
-            <div className="min-w-[30px]">
-              {renderContainer(node.argument, [...path, 'argument'])}
-            </div>
+            <div className="min-w-[30px]">{renderContainer(node.argument, [...path, 'argument'])}</div>
             <span className="text-base">)</span>
           </div>
         );
@@ -655,9 +677,7 @@ export default function FormulaStructureEditPage({
                 {renderContainer(node.lower, [...path, 'lower'])}
               </div>
             </div>
-            <div>
-              {renderContainer(node.body, [...path, 'body'])}
-            </div>
+            <div>{renderContainer(node.body, [...path, 'body'])}</div>
           </div>
         );
 
@@ -673,9 +693,7 @@ export default function FormulaStructureEditPage({
                 {renderContainer(node.lower, [...path, 'lower'])}
               </div>
             </div>
-            <div>
-              {renderContainer(node.body, [...path, 'body'])}
-            </div>
+            <div>{renderContainer(node.body, [...path, 'body'])}</div>
           </div>
         );
 
@@ -684,7 +702,7 @@ export default function FormulaStructureEditPage({
     }
   };
 
-  // 键盘事件处理
+  // 键盘事件处理（PC / 物理键盘）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl/Cmd + Z: Undo
@@ -693,45 +711,45 @@ export default function FormulaStructureEditPage({
         undo();
         return;
       }
-      
+
       // Ctrl/Cmd + Shift + Z 或 Ctrl/Cmd + Y: Redo
-      if ((e.ctrlKey || e.metaKey) && (e.shiftKey && e.key === 'z' || e.key === 'y')) {
+      if ((e.ctrlKey || e.metaKey) && ((e.shiftKey && e.key === 'z') || e.key === 'y')) {
         e.preventDefault();
         redo();
         return;
       }
-      
+
       // 字母和数字直接插入
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         insertCharacter(e.key);
       }
-      
+
       // Backspace 删除
       if (e.key === 'Backspace') {
         e.preventDefault();
         deleteAtCursor();
       }
-      
+
       // Tab 移动到下一个容器
       if (e.key === 'Tab') {
         e.preventDefault();
         moveToNextContainer();
       }
-      
+
       // Escape 取消高亮
       if (e.key === 'Escape') {
         e.preventDefault();
         setHighlightedForDeletion(null);
       }
-      
+
       // 左右箭头移动光标
       if (e.key === 'ArrowLeft' && cursor.index > 0) {
         e.preventDefault();
         setCursor({ ...cursor, index: cursor.index - 1 });
         setHighlightedForDeletion(null);
       }
-      
+
       if (e.key === 'ArrowRight') {
         e.preventDefault();
         const container = getContainerAtPath(root, cursor.path);
@@ -745,6 +763,66 @@ export default function FormulaStructureEditPage({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [cursor, root, highlightedForDeletion, history, historyIndex]);
+
+  // 隐藏输入框：处理 iOS/Android 软键盘输入
+  const handleHiddenBeforeInput = (e: any) => {
+    const ne = e.nativeEvent as InputEvent;
+    // Backspace（软键盘删除）
+    if (ne?.inputType === 'deleteContentBackward') {
+      e.preventDefault?.();
+      deleteAtCursor();
+      clearHiddenInput();
+      // 保持焦点，避免键盘收起
+      focusHiddenInput();
+      return;
+    }
+
+    // Enter：当作空格（可按你喜好改成换行或忽略）
+    if (ne?.inputType === 'insertLineBreak') {
+      e.preventDefault?.();
+      insertCharacter(' ');
+      clearHiddenInput();
+      focusHiddenInput();
+      return;
+    }
+  };
+
+  const handleHiddenCompositionStart = () => {
+    isComposingRef.current = true;
+  };
+
+  const handleHiddenCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    isComposingRef.current = false;
+    const text = (e.data || '').toString();
+    if (text) {
+      // 将提交的文本逐字符插入（和你的节点最小单元逻辑一致）
+      for (const ch of Array.from(text)) insertCharacter(ch);
+    }
+    clearHiddenInput();
+    focusHiddenInput();
+  };
+
+  const handleHiddenInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
+    // composition 期间不处理，等 compositionend
+    if (isComposingRef.current) return;
+
+    const el = e.currentTarget;
+    const value = el.value;
+    if (!value) return;
+
+    // 普通输入（英文/数字/符号等）
+    for (const ch of Array.from(value)) {
+      // iOS 有时会把回车写进 value
+      if (ch === '\n') {
+        insertCharacter(' ');
+      } else {
+        insertCharacter(ch);
+      }
+    }
+
+    clearHiddenInput();
+    focusHiddenInput();
+  };
 
   const handleNext = () => {
     const expression = generateExpression(root);
@@ -775,20 +853,67 @@ export default function FormulaStructureEditPage({
     { label: 'exp', name: 'exp' },
   ];
 
-  const operatorSymbols = ['=', '+', '-', '×', '÷', '·', ':', '±', '≈', '≡', '≠', '≤', '≥', '∝', '→', '∞', '°', 'π'];
+  const operatorSymbols = [
+    '=',
+    '+',
+    '-',
+    '×',
+    '÷',
+    '·',
+    ':',
+    '±',
+    '≈',
+    '≡',
+    '≠',
+    '≤',
+    '≥',
+    '∝',
+    '→',
+    '∞',
+    '°',
+    'π',
+  ];
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      {/* 隐藏输入框：用于召唤手机键盘 */}
+      <textarea
+        ref={hiddenInputRef}
+        // 关键：不要设置 readOnly / inputMode="none"
+        inputMode="text"
+        autoCorrect="off"
+        autoCapitalize="none"
+        spellCheck={false}
+        aria-hidden="true"
+        tabIndex={-1}
+        className="sr-only"
+        // sr-only 在某些实现里会 display:none（会导致无法 focus），因此用 inline style 强制存在
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: 1,
+          height: 1,
+          opacity: 0,
+          // 让它不挡点击，但仍可 focus
+          pointerEvents: 'none',
+        }}
+        onBeforeInput={handleHiddenBeforeInput as any}
+        onCompositionStart={handleHiddenCompositionStart}
+        onCompositionEnd={handleHiddenCompositionEnd}
+        onInput={handleHiddenInput}
+      />
+
       {/* Header */}
       <header className="px-5 py-4 flex items-center justify-between border-b border-border">
         <button onClick={onCancel} className="p-2 hover:bg-primary/10 rounded-xl transition-colors">
           <ChevronLeft className="w-5 h-5 text-foreground" />
         </button>
         <h1 className="flex-1 text-center text-foreground">公式編集（構造）</h1>
-        
+
         {/* Undo/Redo */}
         <div className="flex gap-1">
-          <button 
+          <button
             onClick={undo}
             disabled={historyIndex === 0}
             className="p-2 disabled:opacity-30 text-primary hover:bg-primary/10 rounded-xl transition-colors"
@@ -796,7 +921,7 @@ export default function FormulaStructureEditPage({
           >
             <Undo className="w-5 h-5" />
           </button>
-          <button 
+          <button
             onClick={redo}
             disabled={historyIndex === history.length - 1}
             className="p-2 disabled:opacity-30 text-primary hover:bg-primary/10 rounded-xl transition-colors"
@@ -805,8 +930,8 @@ export default function FormulaStructureEditPage({
             <Redo className="w-5 h-5" />
           </button>
         </div>
-        
-        <button 
+
+        <button
           onClick={handleNext}
           className="flex items-center gap-1 px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity"
         >
@@ -818,18 +943,21 @@ export default function FormulaStructureEditPage({
       {/* Main Content */}
       <main className="flex-1 flex flex-col">
         {/* 编辑区 - 无限画布 */}
-        <div 
+        <div
           ref={editorRef}
           className="flex-1 overflow-auto p-6"
           onClick={() => {
             setCursor({ path: [], index: root.children.length });
             setHighlightedForDeletion(null);
+            focusHiddenInput();
+          }}
+          onPointerDown={() => {
+            // iOS 有时 click 触发较晚，pointerdown 更稳
+            focusHiddenInput();
           }}
         >
           <div className="min-w-full min-h-full inline-block">
-            <div className="text-3xl leading-relaxed">
-              {renderContainer(root, [])}
-            </div>
+            <div className="text-3xl leading-relaxed">{renderContainer(root, [])}</div>
           </div>
         </div>
 
@@ -848,7 +976,10 @@ export default function FormulaStructureEditPage({
               {structureSymbols.map((item) => (
                 <button
                   key={item.type}
-                  onClick={() => insertStructure(item.type)}
+                  onClick={() => {
+                    insertStructure(item.type);
+                    focusHiddenInput();
+                  }}
                   className="flex-shrink-0 px-4 py-2.5 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors text-base"
                 >
                   {item.label}
@@ -858,7 +989,10 @@ export default function FormulaStructureEditPage({
               {functionTemplates.map((item) => (
                 <button
                   key={item.name}
-                  onClick={() => insertFunction(item.name)}
+                  onClick={() => {
+                    insertFunction(item.name);
+                    focusHiddenInput();
+                  }}
                   className="flex-shrink-0 px-3 py-2.5 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors text-sm"
                 >
                   {item.label}
@@ -873,7 +1007,10 @@ export default function FormulaStructureEditPage({
               {operatorSymbols.map((symbol) => (
                 <button
                   key={symbol}
-                  onClick={() => insertCharacter(symbol)}
+                  onClick={() => {
+                    insertCharacter(symbol);
+                    focusHiddenInput();
+                  }}
                   className="flex-shrink-0 w-10 h-10 rounded-xl bg-background/80 text-foreground hover:bg-primary/10 hover:text-primary transition-colors flex items-center justify-center"
                 >
                   {symbol}

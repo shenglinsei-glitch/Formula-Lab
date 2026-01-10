@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { ChevronDown, MoreVertical, Plus, ChevronLeft, Maximize2, Minimize2, X } from "lucide-react";
 import { dataStore } from '../store/dataStore';
 import { UNCATEGORIZED_SCENARIO_ID } from '../store/dataStore';
@@ -25,11 +25,13 @@ export default function StepListPage({
   const [newStepName, setNewStepName] = useState('');
   const [showFormulaSelector, setShowFormulaSelector] = useState<string | null>(null);
 
-  // Step action menu (via '...' button)
-  const [stepMenu, setStepMenu] = useState<null | { stepId: string; anchorRect: DOMRect }>(null);
+  // Step action menu (long-press / right-click / '...' button)
+  const [stepMenu, setStepMenu] = useState<null | { stepId: string; x: number; y: number }>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  const openStepMenu = (stepId: string, anchorRect: DOMRect) => {
-    setStepMenu({ stepId, anchorRect });
+  const openStepMenu = (stepId: string, x: number, y: number) => {
+    setStepMenu({ stepId, x, y });
   };
 
   const closeStepMenu = () => {
@@ -45,8 +47,15 @@ export default function StepListPage({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [stepMenu]);
 
-  // 订阅数据更新
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+  };
 
+  // 订阅数据更新
   useEffect(() => {
     const unsubscribe = dataStore.subscribe(() => {
       setScenario(dataStore.getScenario(scenarioId));
@@ -113,65 +122,40 @@ export default function StepListPage({
   return (
     <div className="min-h-screen flex flex-col bg-background pb-16">
       {/* Step context menu */}
-      {stepMenu &&
-        (() => {
-          const MENU_W = 220;
-          const MENU_H = 112; // approx height for 2 items
-          const PAD = 10;
-
-          const rect = stepMenu.anchorRect;
-          const vw = window.innerWidth;
-          const vh = window.innerHeight;
-
-          // Default: align to the '...' button's right edge, show below
-          let left = rect.right - MENU_W;
-          let top = rect.bottom + 8;
-
-          // Clamp horizontally
-          if (left < PAD) left = PAD;
-          if (left + MENU_W > vw - PAD) left = vw - PAD - MENU_W;
-
-          // If bottom overflows, show above
-          if (top + MENU_H > vh - PAD) {
-            top = rect.top - 8 - MENU_H;
-          }
-          if (top < PAD) top = PAD;
-
-          return (
-            <div
-              className="fixed inset-0 z-50"
-              onPointerDown={() => closeStepMenu()}
-              onContextMenu={(e) => e.preventDefault()}
+      {stepMenu && (
+        <div
+          className="fixed inset-0 z-50"
+          onPointerDown={() => closeStepMenu()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div
+            className="absolute bg-white/90 dark:bg-neutral-900/90 backdrop-blur-md shadow-xl rounded-xl border border-border p-1 min-w-[200px]"
+            style={{ left: stepMenu.x, top: stepMenu.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors"
+              onClick={() => {
+                setShowFormulaSelector(stepMenu.stepId);
+                closeStepMenu();
+              }}
             >
-              <div
-                className="absolute bg-white/90 dark:bg-neutral-900/90 backdrop-blur-md shadow-xl rounded-xl border border-border p-1 min-w-[200px]"
-                style={{ left, top, width: MENU_W }}
-                onPointerDown={(e) => e.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors"
-                  onClick={() => {
-                    setShowFormulaSelector(stepMenu.stepId);
-                    closeStepMenu();
-                  }}
-                >
-                  ＋ 公式を追加
-                </button>
-				<button
-				  type="button"
-				  className="w-full text-left px-3 py-2 rounded-lg hover:bg-orange-500/10 transition-colors text-orange-500 hover:text-orange-600"
-                  onClick={() => {
-                    deleteStep(stepMenu.stepId);
-                    closeStepMenu();
-                  }}
-                >
-                  ステップを削除
-                </button>
-              </div>
-            </div>
-          );
-        })()}
+              ＋ 公式を追加
+            </button>
+            <button
+              type="button"
+              className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors text-red-600"
+              onClick={() => {
+                deleteStep(stepMenu.stepId);
+                closeStepMenu();
+              }}
+            >
+              ステップを削除
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <header className="px-5 py-4 flex items-center justify-between border-b border-border">
@@ -215,6 +199,28 @@ export default function StepListPage({
               {/* Step Header */}
               <div
                 className="px-4 py-3 flex items-center justify-between select-none"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  openStepMenu(step.id, e.clientX, e.clientY);
+                }}
+                onPointerDown={(e) => {
+                  // Right click is handled by onContextMenu
+                  if ((e as any).button === 2) return;
+                  clearLongPressTimer();
+                  longPressStartRef.current = { x: e.clientX, y: e.clientY };
+                  longPressTimerRef.current = window.setTimeout(() => {
+                    openStepMenu(step.id, e.clientX, e.clientY);
+                  }, 520);
+                }}
+                onPointerMove={(e) => {
+                  const start = longPressStartRef.current;
+                  if (!start) return;
+                  const dx = Math.abs(e.clientX - start.x);
+                  const dy = Math.abs(e.clientY - start.y);
+                  if (dx + dy > 12) clearLongPressTimer();
+                }}
+                onPointerUp={clearLongPressTimer}
+                onPointerCancel={clearLongPressTimer}
               >
                 <button
                   type="button"
@@ -231,10 +237,9 @@ export default function StepListPage({
                   type="button"
                   aria-label="ステップメニュー"
                   onClick={(e) => {
-                      e.stopPropagation();
-                      const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                      openStepMenu(step.id, rect);
-                    }}
+                    e.stopPropagation();
+                    openStepMenu(step.id, e.clientX, e.clientY);
+                  }}
                   className="p-2 text-muted-foreground hover:text-foreground hover:bg-accent rounded-xl transition-colors"
                 >
                   <MoreVertical className="w-4 h-4" />
@@ -260,38 +265,43 @@ export default function StepListPage({
                           <div className="text-sm text-foreground mb-1">{formula.name}</div>
                           <div className="text-sm text-muted-foreground font-mono">{formula.expression}</div>
                         </button>
-	                        {scenarioId !== UNCATEGORIZED_SCENARIO_ID && (
-	                          <button
-	                            onClick={(e) => removeFormulaFromStep(step.id, formulaId, e)}
-	                            className="p-2 text-muted-foreground hover:text-orange-500 hover:bg-orange-500/10 rounded-xl transition-colors"
-	                            title="削除"
-	                          >
-	                            <X className="w-4 h-4" />
-	                          </button>
-	                        )}
+                        {scenarioId !== UNCATEGORIZED_SCENARIO_ID && (
+                          <button
+                            onClick={(e) => removeFormulaFromStep(step.id, formulaId, e)}
+                            className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-xl transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     );
                   })}
                   
                   {/* Add Formula Button */}
-                  {scenarioId !== UNCATEGORIZED_SCENARIO_ID && showFormulaSelector === step.id && (
+                  {scenarioId !== UNCATEGORIZED_SCENARIO_ID && (
                     <div className="p-4">
-                      <div className="glass-card rounded-xl max-h-60 overflow-y-auto">
-                        {Object.values(dataStore.getFormulas()).map((formula) => {
-                          const alreadyAdded = step.formulaIds.includes(formula.id);
-                          return (
-                            <button
-                              key={formula.id}
-                              onClick={() => addFormulaToStep(step.id, formula.id)}
-                              disabled={alreadyAdded}
-                              className="w-full px-4 py-3 text-left hover:bg-primary/5 border-b border-border last:border-b-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                            >
-                              <div className="text-sm text-foreground">{formula.name}</div>
-                              <div className="text-xs text-muted-foreground font-mono">{formula.expression}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {showFormulaSelector === step.id ? (
+                        <div className="glass-card rounded-xl max-h-60 overflow-y-auto">
+                          {Object.values(dataStore.getFormulas()).map((formula) => {
+                            const alreadyAdded = step.formulaIds.includes(formula.id);
+                            return (
+                              <button
+                                key={formula.id}
+                                onClick={() => addFormulaToStep(step.id, formula.id)}
+                                disabled={alreadyAdded}
+                                className="w-full px-4 py-3 text-left hover:bg-primary/5 border-b border-border last:border-b-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                              >
+                                <div className="text-sm text-foreground">{formula.name}</div>
+                                <div className="text-xs text-muted-foreground font-mono">{formula.expression}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground px-1">
+                          右クリック / 長押しメニューから「公式を追加」「削除」ができます
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
