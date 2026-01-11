@@ -348,6 +348,8 @@ export default function App() {
       {navState.currentPage === 'formulaStructureEdit' && (
         <FormulaStructureEditPage
           formulaId={navState.selectedFormula}
+          draftExpression={navState.tempFormula?.expression || undefined}
+          draftStructureData={navState.tempFormula?.structureData || navState.tempFormula?.structureTree || undefined}
           onNext={navigateToFormulaInfoEdit}
           onCancel={cancelEdit}
         />

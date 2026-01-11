@@ -78,20 +78,20 @@ export default function FormulaRenderer({
 
       case 'fraction':
         return (
-          <span className="inline-block mx-1 align-middle">
-            <span className="flex flex-col items-center" style={{ lineHeight: 1 }}>
-              <span
-                className="border-b border-foreground/70 px-1"
-                style={{ paddingBottom: '0.18em' }}  // ここを広げて多重分数の重なりを防ぐ
-              >
-                {renderContainer(node.numerator, [...path, 'numerator'])}
-              </span>
-              <span
-                className="px-1"
-                style={{ paddingTop: '0.18em' }} // ここを広げて多重分数の重なりを防ぐ
-              >
-                {renderContainer(node.denominator, [...path, 'denominator'])}
-              </span>
+          // Use inline-grid so the bar width follows the wider of numerator/denominator.
+          // Also keep the bar in its own row to avoid overlapping with √'s overline.
+          <span className="inline-grid mx-1 align-middle justify-items-center" style={{ lineHeight: 1 }}>
+            <span className="px-1" style={{ paddingBottom: '0.20em' }}>
+              {renderContainer(node.numerator, [...path, 'numerator'])}
+            </span>
+            <span
+              className="w-full border-t border-foreground/70"
+              style={{ marginTop: '0.10em', marginBottom: '0.10em' }}
+              aria-hidden="true"
+            />
+            {/* Extra top padding prevents the fraction bar from visually colliding with √ overlines in the denominator. */}
+            <span className="px-1" style={{ paddingTop: '0.42em' }}>
+              {renderContainer(node.denominator, [...path, 'denominator'])}
             </span>
           </span>
         );
@@ -123,7 +123,8 @@ export default function FormulaRenderer({
               </span>
               <span
                 className="border-t border-foreground/70 px-0.5"
-                style={{ paddingTop: '0.10em' }}
+                // A bit more padding helps when √ appears under a fraction bar.
+                style={{ paddingTop: '0.14em' }}
               >
                 {renderContainer(node.content, [...path, 'content'])}
               </span>

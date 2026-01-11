@@ -87,15 +87,156 @@ export default function FormulaInfoEditPage({
 
   // 从表达式提取符号
   const extractSymbolsFromExpression = (expr: string): SymbolDefinition[] => {
-    const symbolPattern = /[a-zA-Z]|[α-ωΑ-Ω]|π|Σ|∫/g;
-    const matches = expr.match(symbolPattern) || [];
-    const uniqueSymbols = Array.from(new Set(matches));
-    
-    return uniqueSymbols.map(symbol => ({
-      symbol,
-      meaning: '',
-      unit: ''
-    }));
+    const input = (expr || '').trim();
+    if (!input) return [];
+
+    // Normalize a few common LaTeX greek commands into unicode so we can treat them as symbols.
+    // (We keep it small and safe; unknown commands are ignored or treated as plain text.)
+    const greekMap: Record<string, string> = {
+      '\\alpha': 'α',
+      '\\beta': 'β',
+      '\\gamma': 'γ',
+      '\\delta': 'δ',
+      '\\epsilon': 'ε',
+      '\\theta': 'θ',
+      '\\lambda': 'λ',
+      '\\mu': 'μ',
+      '\\nu': 'ν',
+      '\\omega': 'ω',
+      '\\pi': 'π',
+      '\\sigma': 'σ',
+      '\\Sigma': 'Σ',
+    };
+
+    // Commands that are not variables (structure/operators) and should be skipped.
+    const nonSymbolCommands = new Set([
+      'frac',
+      'sqrt',
+      'times',
+      'cdot',
+      'div',
+      'pm',
+      'le',
+      'ge',
+      'neq',
+      'approx',
+      'to',
+      'infty',
+      'left',
+      'right',
+      'mathrm',
+      'text',
+      'operatorname',
+      'sum',
+      'int',
+    ]);
+
+    const isAsciiLetter = (ch: string) => /[A-Za-z]/.test(ch);
+    const isGreekLetter = (ch: string) => /[α-ωΑ-Ω]/.test(ch) || ch === 'π' || ch === 'Σ' || ch === '∫' || ch === 'σ';
+    const isSymbolBaseChar = (ch: string) => isAsciiLetter(ch) || isGreekLetter(ch);
+
+    const readBraceGroup = (s: string, i: number) => {
+      // assumes s[i] === '{'
+      let depth = 0;
+      let j = i;
+      for (; j < s.length; j++) {
+        const c = s[j];
+        if (c === '{') depth++;
+        else if (c === '}') {
+          depth--;
+          if (depth === 0) break;
+        }
+      }
+      return { value: s.slice(i + 1, j), next: Math.min(j + 1, s.length) };
+    };
+
+    const readScript = (s: string, i: number) => {
+      // reads _{...} or _x / ^{...} or ^x
+      if (i >= s.length) return { value: '', next: i };
+      if (s[i] === '{') return readBraceGroup(s, i);
+      return { value: s[i] ?? '', next: i + 1 };
+    };
+
+    const symbols: string[] = [];
+    const s = input;
+    let i = 0;
+    while (i < s.length) {
+      const ch = s[i];
+
+      // Skip whitespace
+      if (ch === ' ' || ch === '\n' || ch === '\t') {
+        i++;
+        continue;
+      }
+
+      // LaTeX command
+      if (ch === '\\') {
+        let j = i + 1;
+        while (j < s.length && /[A-Za-z]/.test(s[j])) j++;
+        const cmd = s.slice(i, j);
+
+        // greek variables
+        if (greekMap[cmd]) {
+          let base = greekMap[cmd];
+          let sub = '';
+          let sup = '';
+          let k = j;
+          // allow scripts after command
+          while (k < s.length && (s[k] === '_' || s[k] === '^')) {
+            const kind = s[k];
+            const out = readScript(s, k + 1);
+            if (kind === '_') sub = out.value;
+            else sup = out.value;
+            k = out.next;
+          }
+          let token = base;
+          if (sub) token += `_${sub}`;
+          if (sup) token += `^${sup}`;
+          symbols.push(token);
+          i = k;
+          continue;
+        }
+
+        // structure command (skip)
+        const cmdName = cmd.replace('\\', '');
+        if (nonSymbolCommands.has(cmdName)) {
+          i = j;
+          continue;
+        }
+
+        // Unknown command: treat as plain text, skip backslash.
+        i = j;
+        continue;
+      }
+
+      // Base symbol (ascii or greek)
+      if (isSymbolBaseChar(ch)) {
+        let base = ch;
+        let sub = '';
+        let sup = '';
+        let k = i + 1;
+        // scripts can appear in any order; we accept repeated and keep last
+        while (k < s.length && (s[k] === '_' || s[k] === '^')) {
+          const kind = s[k];
+          const out = readScript(s, k + 1);
+          if (kind === '_') sub = out.value;
+          else sup = out.value;
+          k = out.next;
+        }
+        let token = base;
+        if (sub) token += `_${sub}`;
+        if (sup) token += `^${sup}`;
+        symbols.push(token);
+        i = k;
+        continue;
+      }
+
+      // Otherwise skip (numbers/operators/brackets etc)
+      i++;
+    }
+
+    const unique = Array.from(new Set(symbols.filter(Boolean)));
+    return unique.map((symbol) => ({ symbol, meaning: '', unit: '' }));
   };
 
   // 等价表达式操作
@@ -124,7 +265,94 @@ export default function FormulaInfoEditPage({
     setSymbols(symbols.filter((_, i) => i !== index));
   };
 
-  const addSymbol = () => {
+  
+  // --- Symbol preview: render x_1^2 as real sub/sup (UI only) ---
+  const renderSymbolPreview = (raw: string) => {
+    const s = (raw || '').trim();
+    if (!s) return <span className="text-muted-foreground">—</span>;
+
+    // normalize a few common LaTeX commands (preview only)
+    const greekMap: Record<string, string> = {
+      '\\sigma': 'σ',
+      '\\Sigma': 'Σ',
+      '\\pi': 'π',
+      '\\alpha': 'α',
+      '\\beta': 'β',
+      '\\gamma': 'γ',
+      '\\delta': 'δ',
+      '\\epsilon': 'ε',
+      '\\theta': 'θ',
+      '\\lambda': 'λ',
+      '\\mu': 'μ',
+      '\\nu': 'ν',
+      '\\omega': 'ω',
+    };
+
+    let t = s.replace(/\\[A-Za-z]+/g, (m) => greekMap[m] ?? m.replace('\\', ''));
+
+    const readGroup = (str: string, i: number) => {
+      if (str[i] === '{') {
+        let depth = 0;
+        let j = i;
+        for (; j < str.length; j++) {
+          const ch = str[j];
+          if (ch === '{') depth++;
+          else if (ch === '}') {
+            depth--;
+            if (depth === 0) break;
+          }
+        }
+        return { value: str.slice(i + 1, j), next: j + 1 };
+      }
+      return { value: str[i] ?? '', next: i + 1 };
+    };
+
+    // base then (_sub)? (^sup)? in any order
+    let base = '';
+    let sub = '';
+    let sup = '';
+
+    const baseMatch = t.match(/^([A-Za-zα-ωΑ-ΩπΣ]+|\d+|[一-龥]+)/);
+    if (baseMatch) {
+      base = baseMatch[0];
+      t = t.slice(base.length);
+    } else {
+      base = t[0] ?? '';
+      t = t.slice(1);
+    }
+
+    let i = 0;
+    while (i < t.length) {
+      const ch = t[i];
+      if (ch === '_') {
+        const g = readGroup(t, i + 1);
+        sub = g.value;
+        i = g.next;
+        continue;
+      }
+      if (ch === '^') {
+        const g = readGroup(t, i + 1);
+        sup = g.value;
+        i = g.next;
+        continue;
+      }
+      i++;
+    }
+
+    return (
+      <span className="inline-flex items-baseline leading-none">
+        <span className="font-medium">{base}</span>
+        {sub ? (
+          <sub className="text-sm leading-none relative top-1 ml-0.5">{sub}</sub>
+        ) : null}
+        {sup ? (
+          <sup className="text-sm leading-none relative -top-1 ml-0.5">{sup}</sup>
+        ) : null}
+      </span>
+    );
+  };
+
+const addSymbol = () => {
     setSymbols([...symbols, { symbol: '', meaning: '', unit: '' }]);
   };
 
@@ -401,31 +629,40 @@ export default function FormulaInfoEditPage({
             <div className="border-t border-border p-4">
               <div className="text-xs text-muted-foreground mb-2">記号 / 意味 / 単位</div>
               {symbols.map((sym, index) => (
-                <div key={index} className="grid grid-cols-[60px_1fr_80px_32px] gap-2 mb-2">
-                  <input
-                    type="text"
-                    value={sym.symbol}
-                    onChange={(e) => updateSymbol(index, 'symbol', e.target.value)}
-                    placeholder="記号"
-                    className="px-2 py-2 border border-gray-200 rounded text-sm text-center font-mono focus:outline-none focus:border-gray-400"
-                  />
+                <div key={index} className="flex items-center gap-2 mb-2">
+                  {/* preview + raw input */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="w-12 h-10 px-2 border border-gray-200 rounded bg-white flex items-center justify-center">
+                      {renderSymbolPreview(sym.symbol)}
+                    </div>
+                    <input
+                      type="text"
+                      value={sym.symbol}
+                      onChange={(e) => updateSymbol(index, 'symbol', e.target.value)}
+                      placeholder="記号"
+                      className="w-16 sm:w-20 md:w-24 h-10 px-2 border border-gray-200 rounded text-sm text-center font-mono focus:outline-none focus:border-gray-400"
+                    />
+                  </div>
+
                   <input
                     type="text"
                     value={sym.meaning}
                     onChange={(e) => updateSymbol(index, 'meaning', e.target.value)}
                     placeholder="意味"
-                    className="px-2 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:border-gray-400"
+                    className="flex-1 min-w-0 h-10 px-2 border border-gray-200 rounded text-sm focus:outline-none focus:border-gray-400"
                   />
+
                   <input
                     type="text"
                     value={sym.unit}
                     onChange={(e) => updateSymbol(index, 'unit', e.target.value)}
                     placeholder="単位"
-                    className="px-2 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:border-gray-400"
+                    className="w-14 sm:w-20 md:w-24 h-10 px-2 border border-gray-200 rounded text-sm focus:outline-none focus:border-gray-400"
                   />
+
                   <button
                     onClick={() => removeSymbol(index)}
-                    className="p-2 text-gray-400 hover:text-red-500"
+                    className="p-2 text-gray-400 hover:text-red-500 shrink-0"
                   >
                     <X className="w-4 h-4" />
                   </button>

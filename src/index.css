@@ -452,8 +452,16 @@
     inset: calc(var(--spacing) * 0);
   }
 
+  .-top-1 {
+    top: calc(var(--spacing) * -1);
+  }
+
   .top-0 {
     top: calc(var(--spacing) * 0);
+  }
+
+  .top-1 {
+    top: calc(var(--spacing) * 1);
   }
 
   .top-1\/2 {
@@ -592,6 +600,10 @@
     margin-top: calc(var(--spacing) * 2);
   }
 
+  .mt-\[4px\] {
+    margin-top: 4px;
+  }
+
   .mr-0\.5 {
     margin-right: calc(var(--spacing) * .5);
   }
@@ -666,6 +678,10 @@
 
   .inline-flex {
     display: inline-flex;
+  }
+
+  .inline-grid {
+    display: inline-grid;
   }
 
   .h-3 {
@@ -744,6 +760,14 @@
     width: calc(var(--spacing) * 12);
   }
 
+  .w-14 {
+    width: calc(var(--spacing) * 14);
+  }
+
+  .w-16 {
+    width: calc(var(--spacing) * 16);
+  }
+
   .w-full {
     width: 100%;
   }
@@ -758,6 +782,10 @@
 
   .max-w-sm {
     max-width: var(--container-sm);
+  }
+
+  .min-w-0 {
+    min-width: calc(var(--spacing) * 0);
   }
 
   .min-w-\[160px\] {
@@ -832,10 +860,6 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .grid-cols-\[60px_1fr_80px_32px\] {
-    grid-template-columns: 60px 1fr 80px 32px;
-  }
-
   .flex-col {
     flex-direction: column;
   }
@@ -862,6 +886,10 @@
 
   .justify-center {
     justify-content: center;
+  }
+
+  .justify-items-center {
+    justify-items: center;
   }
 
   .gap-0\.5 {
@@ -1141,6 +1169,10 @@
     }
   }
 
+  .bg-white {
+    background-color: var(--color-white);
+  }
+
   .bg-white\/90 {
     background-color: #ffffffe6;
   }
@@ -1286,6 +1318,10 @@
 
   .pt-8 {
     padding-top: calc(var(--spacing) * 8);
+  }
+
+  .pt-\[1px\] {
+    padding-top: 1px;
   }
 
   .pr-3 {
@@ -1449,6 +1485,10 @@
 
   .text-white {
     color: var(--color-white);
+  }
+
+  .overline {
+    text-decoration-line: overline;
   }
 
   .opacity-0 {
@@ -1719,6 +1759,18 @@
 
   .disabled\:opacity-50:disabled {
     opacity: .5;
+  }
+
+  @media (width >= 40rem) {
+    .sm\:w-20 {
+      width: calc(var(--spacing) * 20);
+    }
+  }
+
+  @media (width >= 48rem) {
+    .md\:w-24 {
+      width: calc(var(--spacing) * 24);
+    }
   }
 
   .dark\:bg-neutral-900\/90:is(.dark *) {

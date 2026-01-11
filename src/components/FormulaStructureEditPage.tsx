@@ -6,6 +6,9 @@ interface FormulaStructureEditPageProps {
   formulaId: string | null;
   onNext: (expression: string, structureData?: any) => void;
   onCancel: () => void;
+  /** draft values when returning from info-edit (unsaved) */
+  draftExpression?: string;
+  draftStructureData?: any;
 }
 
 type Container = {
@@ -39,16 +42,21 @@ export default function FormulaStructureEditPage({
   formulaId,
   onNext,
   onCancel,
+  draftExpression,
+  draftStructureData,
 }: FormulaStructureEditPageProps) {
   const existingFormula = formulaId ? dataStore.getFormula(formulaId) : null;
 
-  const initialRoot: FormulaRoot = existingFormula?.structureData
-    ? existingFormula.structureData
-    : {
-        children: existingFormula?.expression
-          ? [{ type: 'symbol', value: existingFormula.expression }]
-          : [],
-      };
+  const initialRoot: FormulaRoot = draftStructureData
+    ? draftStructureData
+    : existingFormula?.structureData
+      ? existingFormula.structureData
+      : {
+          children: (draftExpression ?? existingFormula?.expression)
+            ? [{ type: 'symbol', value: (draftExpression ?? existingFormula?.expression) as string }]
+            : [],
+        };
+
 
   const [root, setRoot] = useState<FormulaRoot>(initialRoot);
   const [cursor, setCursor] = useState<Cursor>({ path: [], index: 0 });
@@ -159,6 +167,7 @@ export default function FormulaStructureEditPage({
     setCursor(newCursor);
     saveHistory(newRoot, newCursor);
     setHighlightedForDeletion(null);
+    requestAnimationFrame(focusHiddenInput);
   };
 
   const insertStructure = (structureType: string) => {
@@ -183,6 +192,7 @@ export default function FormulaStructureEditPage({
       setCursor(newCursor);
       saveHistory(newRoot, newCursor);
       setHighlightedForDeletion(null);
+    requestAnimationFrame(focusHiddenInput);
     }
   };
 
@@ -197,6 +207,7 @@ export default function FormulaStructureEditPage({
       setCursor(newCursor);
       saveHistory(newRoot, newCursor);
       setHighlightedForDeletion(null);
+    requestAnimationFrame(focusHiddenInput);
     }
   };
 
@@ -440,7 +451,7 @@ export default function FormulaStructureEditPage({
         return (
           <div className={`inline-flex flex-col items-center px-1 mx-1 border border-transparent rounded ${highlightClass}`}>
             <div className="border-b border-foreground px-1">{renderContainer(node.numerator, [...path, 'numerator'])}</div>
-            <div className="px-1">{renderContainer(node.denominator, [...path, 'denominator'])}</div>
+            <div className="px-1 mt-[4px] pt-[1px]">{renderContainer(node.denominator, [...path, 'denominator'])}</div>
           </div>
         );
       case 'superscript':
@@ -527,22 +538,22 @@ export default function FormulaStructureEditPage({
               style={{ transform: `translateY(-${keyboardInset}px)` }}>
         <div className="overflow-x-auto flex gap-2 p-2 border-b">
           {structures.map(s => (
-            <button key={s.type} onClick={() => insertStructure(s.type)} className="shrink-0 px-4 py-2 bg-muted rounded-md">{s.label}</button>
+            <button key={s.type} onMouseDown={(e) => e.preventDefault()} onClick={() => insertStructure(s.type)} className="shrink-0 px-4 py-2 bg-muted rounded-md">{s.label}</button>
           ))}
           {funcs.map(f => (
-            <button key={f} onClick={() => insertFunction(f)} className="shrink-0 px-4 py-2 bg-muted rounded-md">{f}</button>
+            <button key={f} onMouseDown={(e) => e.preventDefault()} onClick={() => insertFunction(f)} className="shrink-0 px-4 py-2 bg-muted rounded-md">{f}</button>
           ))}
         </div>
         <div className="flex p-2 gap-2">
           <div className="grid grid-cols-2 gap-1 shrink-0">
-            <button onClick={moveLeft} className="p-2 bg-muted rounded">←</button>
-            <button onClick={moveRight} className="p-2 bg-muted rounded">→</button>
-            <button onClick={moveIn} className="p-2 bg-muted rounded text-xs">中</button>
-            <button onClick={moveOut} className="p-2 bg-muted rounded text-xs">外</button>
+            <button onMouseDown={(e) => e.preventDefault()} onClick={moveLeft} className="p-2 bg-muted rounded">←</button>
+            <button onMouseDown={(e) => e.preventDefault()} onClick={moveRight} className="p-2 bg-muted rounded">→</button>
+            <button onMouseDown={(e) => e.preventDefault()} onClick={moveIn} className="p-2 bg-muted rounded text-xs">中</button>
+            <button onMouseDown={(e) => e.preventDefault()} onClick={moveOut} className="p-2 bg-muted rounded text-xs">外</button>
           </div>
           <div className="flex-1 overflow-x-auto flex gap-1 items-center">
             {symbols.map(s => (
-              <button key={s} onClick={() => insertCharacter(s)} className="shrink-0 w-10 h-10 bg-muted rounded flex items-center justify-center">{s}</button>
+              <button key={s} onMouseDown={(e) => e.preventDefault()} onClick={() => insertCharacter(s)} className="shrink-0 w-10 h-10 bg-muted rounded flex items-center justify-center">{s}</button>
             ))}
           </div>
         </div>
