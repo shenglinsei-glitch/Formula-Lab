@@ -488,6 +488,10 @@
     left: calc(var(--spacing) * 0);
   }
 
+  .left-1\/2 {
+    left: 50%;
+  }
+
   .left-3 {
     left: calc(var(--spacing) * 3);
   }
@@ -704,12 +708,20 @@
     height: calc(var(--spacing) * 10);
   }
 
+  .h-12 {
+    height: calc(var(--spacing) * 12);
+  }
+
   .h-14 {
     height: calc(var(--spacing) * 14);
   }
 
-  .h-screen {
-    height: 100vh;
+  .h-\[100dvh\] {
+    height: 100dvh;
+  }
+
+  .h-\[140px\] {
+    height: 140px;
   }
 
   .max-h-60 {
@@ -718,6 +730,10 @@
 
   .max-h-80 {
     max-height: calc(var(--spacing) * 80);
+  }
+
+  .min-h-0 {
+    min-height: calc(var(--spacing) * 0);
   }
 
   .min-h-\[1\.5em\] {
@@ -768,6 +784,10 @@
     width: calc(var(--spacing) * 16);
   }
 
+  .w-\[140px\] {
+    width: 140px;
+  }
+
   .w-full {
     width: 100%;
   }
@@ -812,6 +832,11 @@
     transform-origin: 0 0;
   }
 
+  .-translate-x-1\/2 {
+    --tw-translate-x: calc(calc(1 / 2 * 100%) * -1);
+    translate: var(--tw-translate-x) var(--tw-translate-y);
+  }
+
   .-translate-y-1\/2 {
     --tw-translate-y: calc(calc(1 / 2 * 100%) * -1);
     translate: var(--tw-translate-x) var(--tw-translate-y);
@@ -852,8 +877,8 @@
     resize: none;
   }
 
-  .grid-cols-2 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .grid-cols-4 {
@@ -878,6 +903,10 @@
 
   .items-start {
     align-items: flex-start;
+  }
+
+  .items-stretch {
+    align-items: stretch;
   }
 
   .justify-between {
@@ -1021,6 +1050,16 @@
 
   .border-border {
     border-color: var(--border);
+  }
+
+  .border-border\/60 {
+    border-color: var(--border);
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .border-border\/60 {
+      border-color: color-mix(in oklab, var(--border) 60%, transparent);
+    }
   }
 
   .border-foreground {
@@ -1324,6 +1363,10 @@
     padding-top: 1px;
   }
 
+  .pr-1 {
+    padding-right: calc(var(--spacing) * 1);
+  }
+
   .pr-3 {
     padding-right: calc(var(--spacing) * 3);
   }
@@ -1418,6 +1461,10 @@
 
   .text-\[10px\] {
     font-size: 10px;
+  }
+
+  .text-\[11px\] {
+    font-size: 11px;
   }
 
   .leading-none {
