@@ -289,6 +289,11 @@ export default function FormulaKeyboard({ api }: Props) {
     e: React.PointerEvent,
     def: T9Def,
   ) => {
+    // iOS Safari: if we don't block default touch actions, dragging after a long-press
+    // can scroll the page and prevent selecting the directional letters.
+    // We combine: (1) CSS `touch-action: none` on the key, and (2) preventDefault here.
+    if (e.pointerType === "touch") e.preventDefault();
+
     (e.currentTarget as HTMLElement).setPointerCapture(
       e.pointerId,
     );
@@ -308,6 +313,8 @@ export default function FormulaKeyboard({ api }: Props) {
 
   const onKeyPointerMove = (e: React.PointerEvent) => {
     if (!lp || !startPoint.current) return;
+    if (e.pointerType === "touch") e.preventDefault();
+
     const dx = e.clientX - startPoint.current.x;
     const dy = e.clientY - startPoint.current.y;
     const d = directionFromDelta(dx, dy);
@@ -318,6 +325,8 @@ export default function FormulaKeyboard({ api }: Props) {
     e: React.PointerEvent,
     def: T9Def,
   ) => {
+    if (e.pointerType === "touch") e.preventDefault();
+
     const wasLong = !!lp;
     clearPress();
     startPoint.current = null;
@@ -493,6 +502,8 @@ export default function FormulaKeyboard({ api }: Props) {
           <div
             ref={centerRef}
             className="flex-1 flex flex-col gap-2"
+            // Don't let touch-drag on the keypad scroll the page.
+            style={{ touchAction: "none" }}
           >
             <div className="grid grid-cols-3 gap-2">
               {t9.map((k) => (
@@ -500,6 +511,8 @@ export default function FormulaKeyboard({ api }: Props) {
                   key={k.id}
                   type="button"
                   className="h-14 rounded-2xl bg-muted flex flex-col items-center justify-center"
+                  // Required for iOS: allow custom pointer-drag behavior without scrolling.
+                  style={{ touchAction: "none" }}
                   onMouseDown={(e) => e.preventDefault()}
                   onPointerDown={(e) => onKeyPointerDown(e, k)}
                   onPointerMove={onKeyPointerMove}
@@ -554,9 +567,13 @@ export default function FormulaKeyboard({ api }: Props) {
             <button
               type="button"
               className="h-14 rounded-2xl bg-muted flex items-center justify-center text-lg"
+              // Keep long-press from triggering page scroll on iOS.
+              style={{ touchAction: "none" }}
               onMouseDown={(e) => e.preventDefault()}
               onClick={api.backspace}
               onPointerDown={(e) => {
+                if (e.pointerType === "touch")
+                  e.preventDefault();
                 // long press repeat delete
                 (
                   e.currentTarget as HTMLElement
@@ -660,8 +677,11 @@ function HoldButton({
     <button
       type="button"
       className="h-14 rounded-2xl bg-muted flex items-center justify-center text-lg"
+      // Keep long-press from triggering page scroll on iOS.
+      style={{ touchAction: "none" }}
       onMouseDown={(e) => e.preventDefault()}
       onPointerDown={(e) => {
+        if (e.pointerType === "touch") e.preventDefault();
         (e.currentTarget as HTMLElement).setPointerCapture(
           e.pointerId,
         );
