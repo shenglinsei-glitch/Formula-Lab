@@ -320,6 +320,45 @@ class DataStore {
     localStorage.setItem(STORAGE_KEY_SCENARIOS, JSON.stringify(this.scenarios));
   }
 
+// 导出：返回可直接保存的 JSON 字符串（完全覆盖用）
+exportData(): string {
+  const payload = {
+    version: 1,
+    formulas: this.formulas,
+    scenarios: this.scenarios,
+    exportedAt: new Date().toISOString(),
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+// 导入：从 JSON 字符串恢复数据（完全覆盖）
+importData(rawJson: string): void {
+  const parsed = JSON.parse(rawJson);
+
+  // 允许两种格式：
+  // A) { version, formulas, scenarios, ... }
+  // B) { formulas, scenarios }
+  const formulas = parsed?.formulas;
+  const scenarios = parsed?.scenarios;
+
+  if (!formulas || typeof formulas !== 'object') {
+    throw new Error('Invalid formulas');
+  }
+  if (!Array.isArray(scenarios)) {
+    throw new Error('Invalid scenarios');
+  }
+
+  this.formulas = formulas as Record<string, Formula>;
+  this.scenarios = scenarios as Scenario[];
+
+  // 兼容旧数据结构，并保证"未整理"存在
+  this.migrateOldDataFormat();
+  this.ensureUncategorizedScenario();
+
+  this.persist();
+  this.notifyListeners();
+}
+
   // 重置为初始数据
   reset(): void {
     this.formulas = { ...initialFormulas };

@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Search, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Search, Plus, ChevronDown, ChevronRight, Settings, Download, Upload } from 'lucide-react';
 import { dataStore, UNCATEGORIZED_SCENARIO_ID } from '../store/dataStore';
 import BottomNav from './BottomNav';
 import FormulaRenderer from './FormulaRenderer';
@@ -42,6 +42,8 @@ export default function HomePage({
   const [editingItem, setEditingItem] = useState<{ type: 'scenario' | 'formula'; id: string; name: string } | null>(null);
   const [newScenarioDialog, setNewScenarioDialog] = useState<{ parentId?: string } | null>(null);
   const [newScenarioName, setNewScenarioName] = useState('');
+  const [homeMenuOpen, setHomeMenuOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   
   // 長按检测
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -238,10 +240,51 @@ export default function HomePage({
         formulaIds: [] // 使用ID数组
       }]
     };
-    
     dataStore.saveScenario(newScenario);
     setNewScenarioDialog(null);
     setNewScenarioName('');
+  };
+
+  // データ書き出し（JSON）
+  const handleExportData = () => {
+    try {
+      const json = dataStore.exportData();
+      const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      a.href = url;
+      a.download = `formula-lab-backup-${yyyy}${mm}${dd}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      window.alert('書き出しに失敗しました');
+    } finally {
+      setHomeMenuOpen(false);
+    }
+  };
+
+  // データ読み込み（JSON・完全上書き）
+  const handleImportData = async (file: File) => {
+    try {
+      const text = await file.text();
+      const ok = window.confirm('現在のデータを上書きします。よろしいですか？');
+      if (!ok) return;
+      dataStore.importData(text);
+      window.alert('読み込みが完了しました');
+    } catch (e) {
+      console.error(e);
+      window.alert('読み込みに失敗しました（JSON形式を確認してください）');
+    } finally {
+      setHomeMenuOpen(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   // 渲染场景树（支持嵌套）
@@ -304,7 +347,7 @@ export default function HomePage({
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header - 固定搜索栏 */}
-      <header className="bg-background px-4 pt-3 pb-2 sticky top-0 z-10">
+      <header className="bg-background px-4 pt-3 pb-2 sticky top-0 z-10 relative">
         {/* 搜索框 + 新建按钮 */}
         <div className="flex gap-2 mb-3">
           <div className="relative flex-1">
@@ -318,12 +361,49 @@ export default function HomePage({
             />
           </div>
           <button
-            onClick={onCreateFormula}
-            className="px-3 py-2.5 bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity flex items-center gap-1"
+            onClick={() => setHomeMenuOpen(v => !v)}
+            className="px-3 py-2.5 glass-card rounded-xl hover:shadow-md transition-all flex items-center justify-center"
+            aria-label="Home menu"
           >
-            <Plus className="w-5 h-5" />
+            <Settings className="w-5 h-5 text-muted-foreground" />
           </button>
         </div>
+
+{/* Home menu */}
+{homeMenuOpen && (
+  <>
+    <div
+      className="fixed inset-0 z-40"
+      onClick={() => setHomeMenuOpen(false)}
+    />
+    <div className="absolute right-4 mt-1 z-50 glass-card rounded-2xl shadow-2xl py-2 min-w-[180px] border border-border">
+      <button
+        onClick={() => handleExportData()}
+        className="w-full px-5 py-3 text-left text-sm hover:bg-primary/5 text-foreground transition-colors flex items-center gap-2"
+      >
+        <Download className="w-4 h-4 text-primary" />
+        データを書き出し
+      </button>
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        className="w-full px-5 py-3 text-left text-sm hover:bg-primary/5 text-foreground transition-colors flex items-center gap-2"
+      >
+        <Upload className="w-4 h-4 text-primary" />
+        データを読み込み
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleImportData(f);
+        }}
+      />
+    </div>
+  </>
+)}
 
         {/* Mode Switch - 分段控件 */}
         <div className="flex gap-1 p-1 glass-card rounded-xl">
@@ -441,6 +521,36 @@ export default function HomePage({
           ))
         )}
       </main>
+
+{/* Floating Create Button */}
+<button
+  onClick={onCreateFormula}
+  aria-label="Create formula"
+  style={{
+    width: 60,
+    height: 60,
+    borderRadius: 9999,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    transition: '0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+    border: '1px solid rgb(83, 190, 232)',
+    background: 'rgb(83, 190, 232)',
+    color: 'white',
+    boxShadow: 'rgba(83, 190, 232, 0.5) 0px 8px 24px -6px',
+    outline: 'none',
+    padding: 0,
+    opacity: 1,
+    position: 'fixed',
+    right: 16,
+    bottom: 'calc(16px + env(safe-area-inset-bottom) + 56px)', // avoid bottom nav
+    zIndex: 110,
+    transform: 'scale(1)',
+  }}
+>
+  <Plus width={24} height={24} />
+</button>
 
       {/* Bottom Navigation */}
       <BottomNav
