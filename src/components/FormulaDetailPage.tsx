@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronDown, ChevronRight, Edit2 } from 'lucide-react';
 import { dataStore } from '../store/dataStore';
-import BottomNav from './BottomNav';
 import FormulaRenderer from './FormulaRenderer';
+import BottomNav from './BottomNav';
 
 interface FormulaDetailPageProps {
   formulaId: string;
@@ -11,6 +11,8 @@ interface FormulaDetailPageProps {
   onLearningClick: () => void;
   onFormulaClick: (formulaId: string) => void;
   onContextClick: (scenarioId: string, stepId: string) => void;
+  /** optional: jump to symbol detail page */
+  onSymbolClick?: (symbolId: string) => void;
 }
 
 export default function FormulaDetailPage({
@@ -20,11 +22,117 @@ export default function FormulaDetailPage({
   onLearningClick,
   onFormulaClick,
   onContextClick,
+  onSymbolClick,
 }: FormulaDetailPageProps) {
   const formula = dataStore.getFormula(formulaId);
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [isContextsExpanded, setIsContextsExpanded] = useState(false);
   const [isSymbolsExpanded, setIsSymbolsExpanded] = useState(false);
+
+  const normalizeKey = (s: string) => (s || '').trim();
+
+  const container = (...children: any[]) => ({ children });
+  const symNode = (value: string) => ({ type: 'symbol', value });
+
+  // Build a lightweight FormulaRoot for keys like: K_1, σ_{許容}, t^2, k_日本語
+  const buildSymbolKeyRoot = (rawKey: string) => {
+    const s = (rawKey || '').trim();
+    if (!s) return container();
+
+    let i = 0;
+    const readGroup = (): string => {
+      if (s[i] === '{') {
+        i++; // skip '{'
+        const start = i;
+        let depth = 1;
+        while (i < s.length) {
+          const ch = s[i];
+          if (ch === '{') depth++;
+          else if (ch === '}') {
+            depth--;
+            if (depth === 0) break;
+          }
+          i++;
+        }
+        const text = s.slice(start, i);
+        if (s[i] === '}') i++; // skip '}'
+        return text;
+      }
+      const start = i;
+      while (i < s.length) {
+        const ch = s[i];
+        if (ch === '_' || ch === '^') break;
+        i++;
+      }
+      return s.slice(start, i);
+    };
+
+    let baseText = '';
+    while (i < s.length && s[i] !== '_' && s[i] !== '^') {
+      baseText += s[i];
+      i++;
+    }
+    baseText = baseText.trim();
+    let current = container(symNode(baseText || s));
+
+    while (i < s.length) {
+      const op = s[i];
+      if (op !== '_' && op !== '^') {
+        i++;
+        continue;
+      }
+      i++;
+      const groupText = readGroup();
+      const group = container(symNode(groupText.trim()));
+      if (op === '_') {
+        current = container({ type: 'subscript', base: current, index: group });
+      } else {
+        current = container({ type: 'superscript', base: current, exponent: group });
+      }
+    }
+
+    return current;
+  };
+
+  const handleSymbolJump = (key: string, meaning?: string, unit?: string) => {
+  if (!onSymbolClick) return;
+  if (!formula) return;
+
+  const k = normalizeKey(key);
+  const symbols = Object.values(dataStore.getSymbols());
+  const hit = symbols.find((x: any) => normalizeKey(x.key) === k);
+
+  // 已存在 → 直接跳
+  if (hit?.id) {
+    onSymbolClick(hit.id);
+    return;
+  }
+
+  // 不存在 → 自动创建后跳（保证“永远可跳转”）
+  const now = new Date().toISOString();
+  const newId = `sym-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const autoId = `auto-${String(formula.id)}`;
+
+  dataStore.saveSymbol({
+    id: newId,
+    key,
+    entries: [
+      {
+        id: autoId,
+        title: String(formula.name || key),
+        description: String(meaning || ''),
+        unit: unit ? String(unit) : undefined,
+        formulaIds: [String(formula.id)],
+        tables: [],
+      },
+    ],
+    createdAt: now,
+    updatedAt: now,
+  } as any);
+
+  onSymbolClick(newId);
+};
+
 
   if (!formula) {
     return (
@@ -138,7 +246,27 @@ export default function FormulaDetailPage({
               <div className="border-t border-border">
                 {formula.symbols.map((sym, index) => (
                   <div key={index} className="px-5 py-3 flex items-center gap-4 text-sm border-b border-border last:border-b-0">
-                    <div className="font-mono text-foreground text-lg w-10 text-center">{sym.symbol}</div>
+                    {(() => {
+                      const symKey = ((sym as any).symbol ?? (sym as any).key ?? '').toString();
+                      const root = symKey ? buildSymbolKeyRoot(symKey) : null;
+                      const rootOrNull = root && Array.isArray((root as any).children) && (root as any).children.length > 0 ? root : null;
+                      return (
+                    <button
+                      type="button"
+                      onClick={() => handleSymbolJump(symKey, sym.meaning, sym.unit)}
+                      disabled={!onSymbolClick}
+                      className="flex-shrink-0 min-w-14 w-14 text-center text-foreground text-lg rounded-lg hover:bg-primary/5 transition-colors disabled:opacity-100 disabled:hover:bg-transparent"
+                      title={symKey}
+                    >
+                      <FormulaRenderer
+                        root={rootOrNull as any}
+                        fallback={symKey}
+                        className=""
+                        maskBlocks={[]}
+                      />
+                    </button>
+                      );
+                    })()}
                     <div className="flex-1 text-foreground">{sym.meaning}</div>
                     {sym.unit && <div className="text-muted-foreground text-xs">{sym.unit}</div>}
                   </div>

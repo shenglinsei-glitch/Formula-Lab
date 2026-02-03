@@ -5,15 +5,28 @@ import FormulaDetailPage from './components/FormulaDetailPage';
 import LearningPage from './components/LearningPage';
 import FormulaStructureEditPage from './components/FormulaStructureEditPage';
 import FormulaInfoEditPage from './components/FormulaInfoEditPage';
+import SymbolListPage from './components/SymbolListPage';
+import SymbolDetailPage from './components/SymbolDetailPage';
+import BottomNav from './components/BottomNav';
 import { dataStore } from './store/dataStore';
 import type { Formula } from './data/scenarios';
 
-type Page = 'home' | 'stepList' | 'formulaDetail' | 'learning' | 'formulaStructureEdit' | 'formulaInfoEdit';
+type Page =
+  | 'scenes'
+  | 'formulas'
+  | 'symbols'
+  | 'symbolDetail'
+  | 'stepList'
+  | 'formulaDetail'
+  | 'learning'
+  | 'formulaStructureEdit'
+  | 'formulaInfoEdit';
 
 interface NavigationState {
   currentPage: Page;
   selectedScenario: string | null;
   selectedFormula: string | null;
+  selectedSymbol: string | null;
   targetStepId: string | null;
   previousPage: Page | null;
   tempFormula: Partial<Formula> | null; // 保存临时编辑的公式数据
@@ -24,6 +37,7 @@ interface NavigationState {
     returnSource: 'home-scenario' | 'home-formula' | 'stepList' | null;
     selectedScenario: string | null;
     selectedFormula: string | null;
+    selectedSymbol: string | null;
   } | null;
 }
 
@@ -31,9 +45,10 @@ export default function App() {
   const [dataVersion, setDataVersion] = useState(0); // 用于触发重新渲染
   
   const [navState, setNavState] = useState<NavigationState>({
-    currentPage: 'home',
+    currentPage: 'scenes',
     selectedScenario: null,
     selectedFormula: null,
+    selectedSymbol: null,
     targetStepId: null,
     previousPage: null,
     tempFormula: null,
@@ -49,7 +64,7 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // 从首页场景模式进入步骤列表
+  // 从场面页进入步骤列表
   const navigateToStepList = (scenarioId: string, targetStepId?: string) => {
     setNavState({
       ...navState,
@@ -72,14 +87,23 @@ export default function App() {
     });
   };
 
-  // 从首页公式模式进入公式详情
+  // 从公式页进入公式详情
   const navigateToFormulaDetailFromHome = (formulaId: string) => {
     setNavState({
       ...navState,
       currentPage: 'formulaDetail',
       selectedFormula: formulaId,
-      previousPage: 'home',
+      previousPage: navState.currentPage,
       returnSource: 'home-formula',
+    });
+  };
+
+  const navigateToSymbolDetail = (symbolId: string) => {
+    setNavState({
+      ...navState,
+      currentPage: 'symbolDetail',
+      selectedSymbol: symbolId,
+      previousPage: navState.currentPage,
     });
   };
 
@@ -119,13 +143,14 @@ export default function App() {
       ...navState,
       currentPage: 'formulaStructureEdit',
       selectedFormula: null,
-      previousPage: 'home',
+      previousPage: navState.currentPage,
       // 保存进入编辑前的状态
       editEntryState: {
-        returnPage: 'home',
+        returnPage: navState.currentPage,
         returnSource: 'home-formula',
         selectedScenario: null,
         selectedFormula: null,
+        selectedSymbol: null,
       },
     });
   };
@@ -142,6 +167,7 @@ export default function App() {
         returnSource: navState.returnSource,
         selectedScenario: navState.selectedScenario,
         selectedFormula: navState.selectedFormula,
+        selectedSymbol: navState.selectedSymbol,
       },
     });
   };
@@ -175,6 +201,7 @@ export default function App() {
           currentPage: entry.returnPage,
           selectedScenario: entry.selectedScenario,
           selectedFormula: entry.selectedFormula,
+          selectedSymbol: entry.selectedSymbol,
           targetStepId: null,
           previousPage: null,
           tempFormula: null,
@@ -235,6 +262,7 @@ export default function App() {
         currentPage: entry.returnPage,
         selectedFormula: returnFormulaId,
         selectedScenario: entry.selectedScenario,
+        selectedSymbol: entry.selectedSymbol,
         targetStepId: null,
         previousPage: null,
         tempFormula: null,
@@ -261,9 +289,10 @@ export default function App() {
       } else {
         // 返回首页公式模式
         setNavState({
-          currentPage: 'home',
+          currentPage: 'formulas',
           selectedScenario: null,
           selectedFormula: null,
+          selectedSymbol: null,
           targetStepId: null,
           previousPage: null,
           tempFormula: null,
@@ -271,12 +300,20 @@ export default function App() {
           editEntryState: null,
         });
       }
+    } else if (navState.currentPage === 'symbolDetail') {
+      setNavState({
+        ...navState,
+        currentPage: 'symbols',
+        selectedSymbol: null,
+        previousPage: null,
+      });
     } else if (navState.currentPage === 'stepList') {
       // 步骤列表返回首页场景模式
       setNavState({
-        currentPage: 'home',
+        currentPage: 'scenes',
         selectedScenario: null,
         selectedFormula: null,
+        selectedSymbol: null,
         targetStepId: null,
         previousPage: null,
         tempFormula: null,
@@ -295,9 +332,10 @@ export default function App() {
 
   const navigateToHome = () => {
     setNavState({
-      currentPage: 'home',
+      currentPage: 'scenes',
       selectedScenario: null,
       selectedFormula: null,
+      selectedSymbol: null,
       targetStepId: null,
       previousPage: null,
       tempFormula: null,
@@ -306,14 +344,85 @@ export default function App() {
     });
   };
 
+  const navigateToScenes = () => {
+    setNavState({
+      ...navState,
+      currentPage: 'scenes',
+      selectedScenario: null,
+      selectedFormula: null,
+      selectedSymbol: null,
+      targetStepId: null,
+      previousPage: null,
+      returnSource: null,
+      editEntryState: null,
+      tempFormula: null,
+    });
+  };
+
+  const navigateToFormulas = () => {
+    setNavState({
+      ...navState,
+      currentPage: 'formulas',
+      selectedScenario: null,
+      selectedFormula: null,
+      selectedSymbol: null,
+      targetStepId: null,
+      previousPage: null,
+      returnSource: null,
+      editEntryState: null,
+      tempFormula: null,
+    });
+  };
+
+  const navigateToSymbols = () => {
+    setNavState({
+      ...navState,
+      currentPage: 'symbols',
+      selectedScenario: null,
+      selectedFormula: null,
+      selectedSymbol: null,
+      targetStepId: null,
+      previousPage: null,
+      returnSource: null,
+      editEntryState: null,
+      tempFormula: null,
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {navState.currentPage === 'home' && (
+      {navState.currentPage === 'scenes' && (
         <HomePage
+          fixedMode="scenario"
           onScenarioClick={navigateToStepList}
           onFormulaClick={navigateToFormulaDetailFromHome}
           onCreateFormula={navigateToCreateFormula}
-          onLearningClick={navigateToLearning}
+        />
+      )}
+
+      {navState.currentPage === 'formulas' && (
+        <HomePage
+          fixedMode="formula"
+          onScenarioClick={navigateToStepList}
+          onFormulaClick={navigateToFormulaDetailFromHome}
+          onCreateFormula={navigateToCreateFormula}
+        />
+      )}
+
+      {navState.currentPage === 'symbols' && (
+        <SymbolListPage
+          onSymbolClick={navigateToSymbolDetail}
+          onCreateSymbol={(id) => {
+            if (id) navigateToSymbolDetail(id);
+          }}
+        />
+      )}
+
+      {navState.currentPage === 'symbolDetail' && navState.selectedSymbol && (
+        <SymbolDetailPage
+          symbolId={navState.selectedSymbol}
+          onBack={navigateBack}
+          onFormulaClick={navigateToAnotherFormula}
         />
       )}
       
@@ -335,6 +444,7 @@ export default function App() {
           onLearningClick={navigateToLearning}
           onFormulaClick={navigateToAnotherFormula}
           onContextClick={navigateToStepListFromFormula}
+          onSymbolClick={navigateToSymbolDetail}
         />
       )}
       
@@ -365,6 +475,30 @@ export default function App() {
           onCancel={cancelEdit}
         />
       )}
+
+      {(() => {
+        // BottomNav should remain usable on detail pages too.
+        // Normalize currentPage to one of: scenes / formulas / symbols / learning.
+        if (navState.currentPage === 'formulaStructureEdit' || navState.currentPage === 'formulaInfoEdit') return null;
+        const normalized: any =
+          navState.currentPage === 'formulaDetail'
+            ? 'formulas'
+            : navState.currentPage === 'stepList'
+              ? 'scenes'
+              : navState.currentPage === 'symbolDetail'
+                ? 'symbols'
+                : navState.currentPage;
+        if (!(['scenes', 'formulas', 'symbols', 'learning'] as string[]).includes(normalized)) return null;
+        return (
+          <BottomNav
+            currentPage={normalized}
+            onNavigateScenes={navigateToScenes}
+            onNavigateFormulas={navigateToFormulas}
+            onNavigateSymbols={navigateToSymbols}
+            onNavigateLearning={navigateToLearning}
+          />
+        );
+      })()}
     </div>
   );
 }

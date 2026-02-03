@@ -1,14 +1,18 @@
 import React, { useState, useRef } from 'react';
 import { Search, Plus, ChevronDown, ChevronRight, Settings, Download, Upload } from 'lucide-react';
 import { dataStore, UNCATEGORIZED_SCENARIO_ID } from '../store/dataStore';
-import BottomNav from './BottomNav';
 import FormulaRenderer from './FormulaRenderer';
 
 interface HomePageProps {
   onScenarioClick: (scenarioId: string, targetStepId?: string) => void;
   onFormulaClick: (formulaId: string) => void;
   onCreateFormula: () => void;
-  onLearningClick: () => void;
+  /**
+   * If provided, HomePage becomes a single-purpose page.
+   * - 'scenario': only show scene tree UI
+   * - 'formula': only show formula list UI
+   */
+  fixedMode?: 'scenario' | 'formula';
 }
 
 type HomeMode = 'scenario' | 'formula';
@@ -33,9 +37,9 @@ export default function HomePage({
   onScenarioClick, 
   onFormulaClick,
   onCreateFormula,
-  onLearningClick 
+  fixedMode,
 }: HomePageProps) {
-  const [mode, setMode] = useState<HomeMode>('scenario');
+  const [mode, setMode] = useState<HomeMode>(fixedMode ?? 'scenario');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedScenarios, setExpandedScenarios] = useState<Set<string>>(new Set([UNCATEGORIZED_SCENARIO_ID]));
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -48,6 +52,11 @@ export default function HomePage({
   // 長按检测
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
   const longPressTriggered = useRef(false);
+
+  // 如果是固定模式，强制同步（避免父组件切页后仍保留旧状态）
+  React.useEffect(() => {
+    if (fixedMode) setMode(fixedMode);
+  }, [fixedMode]);
 
   // 统一搜索：场景、步骤、公式
   const performSearch = (): SearchResult[] => {
@@ -405,29 +414,31 @@ export default function HomePage({
   </>
 )}
 
-        {/* Mode Switch - 分段控件 */}
-        <div className="flex gap-1 p-1 glass-card rounded-xl">
-          <button
-            onClick={() => setMode('scenario')}
-            className={`flex-1 py-2 px-4 rounded-lg text-sm transition-all ${
-              mode === 'scenario'
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            場面
-          </button>
-          <button
-            onClick={() => setMode('formula')}
-            className={`flex-1 py-2 px-4 rounded-lg text-sm transition-all ${
-              mode === 'formula'
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            公式
-          </button>
-        </div>
+        {/* Mode Switch - 分段控件（固定模式时隐藏，保持页面职责单一） */}
+        {!fixedMode && (
+          <div className="flex gap-1 p-1 glass-card rounded-xl">
+            <button
+              onClick={() => setMode('scenario')}
+              className={`flex-1 py-2 px-4 rounded-lg text-sm transition-all ${
+                mode === 'scenario'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              場面
+            </button>
+            <button
+              onClick={() => setMode('formula')}
+              className={`flex-1 py-2 px-4 rounded-lg text-sm transition-all ${
+                mode === 'formula'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              公式
+            </button>
+          </div>
+        )}
 
         {/* 搜索结果下拉 */}
         {showSearchResults && (
@@ -551,13 +562,6 @@ export default function HomePage({
 >
   <Plus width={24} height={24} />
 </button>
-
-      {/* Bottom Navigation */}
-      <BottomNav
-        currentPage="home"
-        onNavigateHome={() => {}}
-        onNavigateLearning={onLearningClick}
-      />
 
       {/* Context Menu */}
       {contextMenu && (

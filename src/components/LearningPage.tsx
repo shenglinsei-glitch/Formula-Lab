@@ -3,7 +3,6 @@ import { Settings, Eye, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-reac
 import { dataStore } from '../store/dataStore';
 import type { Formula } from '../data/scenarios';
 import LearningSettings from './LearningSettings';
-import BottomNav from './BottomNav';
 import FormulaRenderer from './FormulaRenderer';
 
 // 容器类型
@@ -711,13 +710,6 @@ export default function LearningPage({ onBack, onNavigateHome }: LearningPagePro
           </div>
         ) : null}
       </div>
-
-      {/* Bottom Navigation */}
-      <BottomNav
-        currentPage="learning"
-        onNavigateHome={onNavigateHome}
-        onNavigateLearning={() => {}}
-      />
 
       {/* Settings Drawer */}
       {showSettings && (

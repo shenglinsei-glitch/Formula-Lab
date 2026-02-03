@@ -61,14 +61,18 @@ export default function FormulaRenderer({
   onRevealMask,
 }: Props) {
   const renderContainer = (
-    container: Container,
+    container: Container | null | undefined,
     path: (number | string)[],
   ): React.ReactNode => {
+    if (!container) return null;
+    const children = Array.isArray((container as any).children)
+      ? (container as any).children
+      : [];
     return (
       <span className="inline-flex items-center gap-0.5 leading-none">
-        {container.children.map((child, index) => (
+        {children.map((child: any, index: number) => (
           <React.Fragment key={`${path.join("-")}-${index}`}>
-            {renderNode(child, [...path, index])}
+            {renderNode(child as any, [...path, index])}
           </React.Fragment>
         ))}
       </span>
@@ -76,9 +80,13 @@ export default function FormulaRenderer({
   };
 
   const renderNode = (
-    node: FormulaNode,
+    node: FormulaNode | any,
     path: (number | string)[],
   ): React.ReactNode => {
+    if (!node || typeof node !== "object" || typeof node.type !== "string") {
+      // Best-effort fallback for malformed nodes.
+      return null;
+    }
     const maskId = `formula-${path.join("-")}`;
     const mask = maskBlocks.find((b) => b.id === maskId);
 

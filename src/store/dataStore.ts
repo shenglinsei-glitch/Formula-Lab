@@ -1,9 +1,11 @@
 import { formulas as initialFormulas, scenarios as initialScenarios } from '../data/scenarios';
 import type { Formula, Scenario } from '../data/scenarios';
+import type { SymbolItem } from '../data/symbols';
 
 // 使用localStorage持久化数据
 const STORAGE_KEY_FORMULAS = 'mechanics_formulas';
 const STORAGE_KEY_SCENARIOS = 'mechanics_scenarios';
+const STORAGE_KEY_SYMBOLS = 'mechanics_symbols';
 
 // 系统默认"未整理"场景ID
 export const UNCATEGORIZED_SCENARIO_ID = 'uncategorized';
@@ -11,21 +13,127 @@ export const UNCATEGORIZED_SCENARIO_ID = 'uncategorized';
 class DataStore {
   private formulas: Record<string, Formula>;
   private scenarios: Scenario[];
+  private symbols: Record<string, SymbolItem>;
   private listeners: Set<() => void> = new Set();
 
   constructor() {
     // 从localStorage加载，如果没有则使用初始数据
     const savedFormulas = localStorage.getItem(STORAGE_KEY_FORMULAS);
     const savedScenarios = localStorage.getItem(STORAGE_KEY_SCENARIOS);
+    const savedSymbols = localStorage.getItem(STORAGE_KEY_SYMBOLS);
 
     this.formulas = savedFormulas ? JSON.parse(savedFormulas) : { ...initialFormulas };
     this.scenarios = savedScenarios ? JSON.parse(savedScenarios) : [...initialScenarios];
+    this.symbols = savedSymbols ? JSON.parse(savedSymbols) : {};
 
     // 数据迁移：将旧格式(formulas数组)转换为新格式(formulaIds数组)
     this.migrateOldDataFormat();
 
     // 确保"未整理"场景存在
     this.ensureUncategorizedScenario();
+  }
+
+  // ===== Symbols =====
+  getSymbols(): Record<string, SymbolItem> {
+    return this.symbols;
+  }
+
+  getSymbol(id: string): SymbolItem | undefined {
+    return this.symbols[id];
+  }
+
+  saveSymbol(symbol: SymbolItem): void {
+    this.symbols[symbol.id] = symbol;
+    this.persist();
+    this.notifyListeners();
+  }
+
+  deleteSymbol(id: string): void {
+    delete this.symbols[id];
+    this.persist();
+    this.notifyListeners();
+  }
+
+  /**
+   * 同期：公式に入力済みの「記号の意味 / 単位」を符号ライブラリへ自動同期する。
+   * - 未登録の記号は自動作成
+   * - 各公式ごとに auto-<formulaId> の説明エントリを作成/更新
+   * - 手動エントリ（auto- 以外）は上書きしない
+   */
+  syncSymbolsFromFormulas(): { createdSymbols: number; updatedAutoEntries: number } {
+    const formulas = Object.values(this.formulas);
+    let createdSymbols = 0;
+    let updatedAutoEntries = 0;
+
+    // key -> symbolId lookup (fast)
+    const keyToId = new Map<string, string>();
+    Object.values(this.symbols).forEach((s) => {
+      if (s?.key) keyToId.set(String(s.key), s.id);
+    });
+
+    const now = new Date().toISOString();
+    const ensureSymbol = (key: string) => {
+      const existingId = keyToId.get(key);
+      if (existingId && this.symbols[existingId]) return this.symbols[existingId];
+
+      // create
+      const id = `sym-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const created: any = {
+        id,
+        key,
+        entries: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.symbols[id] = created;
+      keyToId.set(key, id);
+      createdSymbols += 1;
+      return created as any;
+    };
+
+    formulas.forEach((f: any) => {
+      const formulaId = String(f.id);
+      const formulaName = String(f.name || '');
+      (f.symbols || []).forEach((s: any) => {
+        const key = String(s.symbol || '').trim();
+        if (!key) return;
+
+        const meaning = String(s.meaning || '').trim();
+        const unit = String(s.unit || '').trim();
+        // 公式側に何も入力がない場合は同期対象外（空エントリ乱立防止）
+        if (!meaning && !unit) return;
+
+        const sym = ensureSymbol(key) as any;
+        const entries: any[] = Array.isArray(sym.entries) ? [...sym.entries] : [];
+        const autoId = `auto-${formulaId}`;
+        const next = {
+          id: autoId,
+          title: formulaName || key,
+          description: meaning,
+          unit: unit || undefined,
+          formulaIds: [formulaId],
+        };
+
+        const idx = entries.findIndex((e) => e?.id === autoId);
+        if (idx >= 0) {
+          // only update auto- entry
+          entries[idx] = { ...entries[idx], ...next };
+          updatedAutoEntries += 1;
+        } else {
+          entries.unshift({ ...next, tables: [] });
+          updatedAutoEntries += 1;
+        }
+
+        this.symbols[sym.id] = { ...sym, entries, updatedAt: now };
+      });
+    });
+
+    if (createdSymbols > 0 || updatedAutoEntries > 0) {
+      this.persist();
+      this.notifyListeners();
+    }
+
+    return { createdSymbols, updatedAutoEntries };
   }
 
   // 数据迁移：将旧的Step.formulas转换为Step.formulaIds
@@ -318,6 +426,7 @@ class DataStore {
   private persist(): void {
     localStorage.setItem(STORAGE_KEY_FORMULAS, JSON.stringify(this.formulas));
     localStorage.setItem(STORAGE_KEY_SCENARIOS, JSON.stringify(this.scenarios));
+    localStorage.setItem(STORAGE_KEY_SYMBOLS, JSON.stringify(this.symbols));
   }
 
 // 导出：返回可直接保存的 JSON 字符串（完全覆盖用）
@@ -326,6 +435,7 @@ exportData(): string {
     version: 1,
     formulas: this.formulas,
     scenarios: this.scenarios,
+    symbols: this.symbols,
     exportedAt: new Date().toISOString(),
   };
   return JSON.stringify(payload, null, 2);
@@ -340,6 +450,7 @@ importData(rawJson: string): void {
   // B) { formulas, scenarios }
   const formulas = parsed?.formulas;
   const scenarios = parsed?.scenarios;
+  const symbols = parsed?.symbols;
 
   if (!formulas || typeof formulas !== 'object') {
     throw new Error('Invalid formulas');
@@ -350,6 +461,7 @@ importData(rawJson: string): void {
 
   this.formulas = formulas as Record<string, Formula>;
   this.scenarios = scenarios as Scenario[];
+  this.symbols = (symbols && typeof symbols === 'object') ? (symbols as Record<string, SymbolItem>) : {};
 
   // 兼容旧数据结构，并保证"未整理"存在
   this.migrateOldDataFormat();
@@ -363,6 +475,7 @@ importData(rawJson: string): void {
   reset(): void {
     this.formulas = { ...initialFormulas };
     this.scenarios = [...initialScenarios];
+    this.symbols = {};
     this.persist();
     this.notifyListeners();
   }
